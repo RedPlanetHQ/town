@@ -16,6 +16,7 @@ import { ui, type ChatState } from "./store";
 
 export function Chat({ chat }: { chat: NonNullable<ChatState> }) {
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState("");
 
   // Greeting message shown above the input on first paint so the player
@@ -77,6 +78,11 @@ export function Chat({ chat }: { chat: NonNullable<ChatState> }) {
     if (!text || busy) return;
     setInput("");
     void sendMessage({ text });
+    // Refocus the input — browsers sometimes drop focus to <body>
+    // after a form submit, which leaves the user typing into the
+    // overworld instead of the next reply. Defer to the next tick so
+    // it runs after React's reconciliation.
+    queueMicrotask(() => inputRef.current?.focus());
   };
 
   return (
@@ -141,6 +147,7 @@ export function Chat({ chat }: { chat: NonNullable<ChatState> }) {
         {/* Input. */}
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
