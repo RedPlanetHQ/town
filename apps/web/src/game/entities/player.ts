@@ -1,7 +1,15 @@
 import type { KAPLAYCtx, GameObj } from "kaplay";
-import { TILE, MOVE_TIME, type Facing } from "../config";
+import { TILE, MOVE_TIME, INK, type Facing, hex } from "../config";
 import { getPlayerCharacter } from "../character";
 import { ui } from "../../ui/store";
+import { publishLocalPosition } from "../realtime";
+
+// How long the player can stand still (and have no modal open) before
+// their avatar drops into the sleeping pose — Zzz tag above the head,
+// faded sprite, half-speed breath bob. Anything that pauses the world
+// (chat, dm, dialogue, panels) counts as activity, so they don't fall
+// asleep mid-conversation.
+const IDLE_THRESHOLD_MS = 60_000;
 
 export type Tile = { tx: number; ty: number };
 
@@ -49,6 +57,8 @@ export function makePlayer(
   const sprite = parent.add([
     k.sprite(getPlayerCharacter()),
     k.pos(0, spriteBaselineY),
+    // Opacity component so the sleep state can fade the sprite.
+    k.opacity(1),
     k.z(50),
   ]);
 
@@ -58,13 +68,56 @@ export function makePlayer(
   // alternate the sway direction (left foot vs right foot lean).
   let stepParity = 1;
 
+  // Activity timer driving the sleeping state. Updated by every move
+  // and by every frame any modal is open; falling below threshold
+  // marks the player as awake again. performance.now() so the deltas
+  // line up with realtime.ts's lastSeen.
+  let lastActivityAt = performance.now();
+  let sleeping = false;
+
+  // Zzz badge over the sprite — sits above the head, hidden until the
+  // player has been still long enough to trigger the sleep state.
+  const zzz = parent.add([
+    k.text("z z z", { size: 6 }),
+    k.anchor("center"),
+    // 6 px above the sprite's top edge.
+    k.pos(TILE / 2, spriteBaselineY - 6),
+    k.color(hex(k, INK)),
+    k.opacity(0),
+    k.z(52),
+  ]);
+
   // Idle "breath" — visible vertical sine bob + a subtle horizontal sway
-  // so the character reads as breathing, not frozen pixel art.
+  // so the character reads as breathing, not frozen pixel art. Bob
+  // slows and the sprite fades when the sleep timer trips.
   k.onUpdate(() => {
-    if (moving) return;
-    const t = k.time();
-    sprite.pos.y = spriteBaselineY + Math.sin(t * 3.2) * 1.2;
-    sprite.pos.x = Math.sin(t * 1.6) * 0.4;
+    // Any open modal counts as the player "doing something" — pin the
+    // activity timer to now so they don't fall asleep mid-conversation.
+    if (ui.isPaused()) lastActivityAt = performance.now();
+
+    if (!moving) {
+      const t = k.time();
+      const idleFor = performance.now() - lastActivityAt;
+      const nowSleeping = idleFor > IDLE_THRESHOLD_MS;
+      if (nowSleeping !== sleeping) {
+        sleeping = nowSleeping;
+        sprite.opacity = sleeping ? 0.55 : 1;
+        zzz.opacity = sleeping ? 0.9 : 0;
+        // Broadcast the new state so visitors see the same animation.
+        publishLocalPosition({
+          tx: parent.tile.tx,
+          ty: parent.tile.ty,
+          facing: parent.facing,
+          idle: sleeping,
+        });
+      }
+      const bobHz = sleeping ? 1.2 : 3.2;
+      const bobAmp = sleeping ? 0.6 : 1.2;
+      sprite.pos.y = spriteBaselineY + Math.sin(t * bobHz) * bobAmp;
+      sprite.pos.x = Math.sin(t * 1.6) * (sleeping ? 0.2 : 0.4);
+      // Tiny bobbing on the Zzz so it doesn't feel pasted on.
+      if (sleeping) zzz.pos.y = spriteBaselineY - 6 + Math.sin(t * 1.2) * 0.6;
+    }
   });
 
   const tryMove = (dirKey: keyof typeof DIRS) => {
@@ -78,6 +131,22 @@ export function makePlayer(
     const nx = parent.tile.tx + dx;
     const ny = parent.tile.ty + dy;
     if (isBlocked(nx, ny)) return;
+
+    // Any successful move wakes the player. The bob-Hz flip on next
+    // frame undoes the sleeping pose; broadcast straight away so
+    // visitors don't see a stale Zzz on a walking sprite.
+    lastActivityAt = performance.now();
+    if (sleeping) {
+      sleeping = false;
+      sprite.opacity = 1;
+      zzz.opacity = 0;
+      publishLocalPosition({
+        tx: parent.tile.tx,
+        ty: parent.tile.ty,
+        facing,
+        idle: false,
+      });
+    }
 
     moving = true;
     const fromX = parent.pos.x;

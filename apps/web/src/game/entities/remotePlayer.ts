@@ -7,7 +7,7 @@
 
 import type { GameObj, KAPLAYCtx, TweenController } from "kaplay";
 
-import { TILE, MOVE_TIME } from "../config";
+import { TILE, MOVE_TIME, INK, hex } from "../config";
 import {
   getRemotePlayers,
   onRemotesChange,
@@ -33,6 +33,9 @@ type RemoteGameObj = GameObj & {
 type ActiveRemote = {
   parent: RemoteGameObj;
   sprite: GameObj;
+  // Hidden by default. Faded in (opacity 0.9) when the remote sends
+  // idle=true so visitors can see who's stepped away from the keyboard.
+  zzz: GameObj;
   currentCharacter: string;
   // Currently running position tween; cancelled before starting a new
   // one so two tweens never simultaneously mutate parent.pos.
@@ -63,12 +66,22 @@ export function attachRemotePlayers(
     const sprite = parent.add([
       k.sprite(player.character),
       k.pos(0, spriteBaselineY),
+      k.opacity(player.idle ? 0.55 : 1),
       k.z(50),
+    ]);
+    const zzz = parent.add([
+      k.text("z z z", { size: 6 }),
+      k.anchor("center"),
+      k.pos(TILE / 2, spriteBaselineY - 6),
+      k.color(hex(k, INK)),
+      k.opacity(player.idle ? 0.9 : 0),
+      k.z(52),
     ]);
 
     return {
       parent,
       sprite,
+      zzz,
       currentCharacter: player.character,
       activeTween: null,
     };
@@ -81,10 +94,16 @@ export function attachRemotePlayers(
       entry.sprite = entry.parent.add([
         k.sprite(player.character),
         k.pos(0, spriteBaselineY),
+        k.opacity(player.idle ? 0.55 : 1),
         k.z(50),
       ]);
       entry.currentCharacter = player.character;
     }
+    // Sync sleeping state every update so a wake/sleep transition
+    // takes effect immediately, even when no position change came
+    // with it.
+    entry.sprite.opacity = player.idle ? 0.55 : 1;
+    entry.zzz.opacity = player.idle ? 0.9 : 0;
     entry.parent.rTile = { tx: player.tx, ty: player.ty };
     entry.parent.displayName = player.name;
     const targetX = player.tx * TILE;

@@ -23,8 +23,13 @@ export type RemotePlayer = {
   tx: number;
   ty: number;
   facing: "up" | "down" | "left" | "right";
-  // Local clock when we last received an update for this player. Used to
-  // expire stale ghosts (someone closed the tab without a clean leave).
+  // True when the sender hasn't moved for IDLE_THRESHOLD_MS and hasn't
+  // had a modal open in that window — surfaced so remote viewers can
+  // render the sleeping animation. Default false on absent.
+  idle: boolean;
+  // Local clock when we last received an update for this player. Used
+  // by the heartbeat expiry sweep to drop ghosts when a tab closes
+  // without a clean leave.
   lastSeen: number;
 };
 
@@ -35,6 +40,8 @@ type PositionPayload = {
   tx: number;
   ty: number;
   f: RemotePlayer["facing"];
+  // Optional sleeping flag. Older clients omit it; treat as false.
+  i?: boolean;
 };
 
 type Listener = () => void;
@@ -47,7 +54,12 @@ let activeSlug: string | null = null;
 // sub wasn't yet `subscribed` when the scene first called us (race on
 // boot), we can re-publish it as soon as the channel opens.
 let lastSent:
-  | { tx: number; ty: number; facing: RemotePlayer["facing"] }
+  | {
+      tx: number;
+      ty: number;
+      facing: RemotePlayer["facing"];
+      idle: boolean;
+    }
   | null = null;
 const remotes = new Map<string, RemotePlayer>();
 const listeners = new Set<Listener>();
@@ -62,8 +74,9 @@ export function publishLocalPosition(input: {
   tx: number;
   ty: number;
   facing: RemotePlayer["facing"];
+  idle?: boolean;
 }): void {
-  publishLocal(input.tx, input.ty, input.facing);
+  publishLocal(input.tx, input.ty, input.facing, input.idle ?? false);
 }
 
 export function getRemotePlayers(): RemotePlayer[] {
@@ -117,7 +130,16 @@ export function onPendingChange(fn: Listener): () => void {
   };
 }
 
-const STALE_MS = 30_000;
+// How long after the last heartbeat we keep a remote player on screen.
+// Local clients now publish their position every HEARTBEAT_MS even when
+// standing still, so any gap longer than this means the tab actually
+// went away. 60 s is comfortably above the heartbeat cadence + jitter.
+const STALE_MS = 60_000;
+// Cadence at which we re-publish lastSent (keeps remote viewers from
+// expiring an idle but still-present player). Pick a value much
+// smaller than STALE_MS so a single missed heartbeat doesn't kill the
+// avatar.
+const HEARTBEAT_MS = 10_000;
 
 function notify() {
   for (const l of listeners) l();
@@ -132,7 +154,7 @@ function applyPublication(data: unknown) {
     // the publisher. Drop quietly.
     return;
   }
-  console.log(`${LOG} remote update key=${p.k} name=${p.n} tile=${p.tx},${p.ty}`);
+  console.log(`${LOG} remote update key=${p.k} name=${p.n} tile=${p.tx},${p.ty} idle=${p.i ?? false}`);
   remotes.set(p.k, {
     participantKey: p.k,
     name: p.n,
@@ -140,6 +162,7 @@ function applyPublication(data: unknown) {
     tx: p.tx,
     ty: p.ty,
     facing: p.f,
+    idle: p.i === true,
     lastSeen: performance.now(),
   });
   notify();
@@ -158,6 +181,7 @@ function expireStale() {
 }
 
 let staleTimer: number | null = null;
+let heartbeatTimer: number | null = null;
 
 export type RealtimeBootInput = {
   slug: string;
@@ -244,7 +268,7 @@ export async function startRealtime({
   sub.on("subscribed", (ctx: SubscribedContext) => {
     console.log(`${LOG} subscribed to ${bootstrap.positionsChannel}`, ctx);
     if (lastSent) {
-      publishLocal(lastSent.tx, lastSent.ty, lastSent.facing);
+      publishLocal(lastSent.tx, lastSent.ty, lastSent.facing, lastSent.idle);
     }
   });
   sub.on("subscribing", () =>
@@ -263,6 +287,20 @@ export async function startRealtime({
   if (staleTimer === null) {
     staleTimer = window.setInterval(expireStale, 5000);
   }
+  // Heartbeat — re-publish lastSent so remote viewers don't expire us
+  // while we're standing still (or sleeping). Kicks in once the scene
+  // has called publishLocalPosition at least once.
+  if (heartbeatTimer === null) {
+    heartbeatTimer = window.setInterval(() => {
+      if (!lastSent) return;
+      publishLocal(
+        lastSent.tx,
+        lastSent.ty,
+        lastSent.facing,
+        lastSent.idle,
+      );
+    }, HEARTBEAT_MS);
+  }
 
   return { stop };
 }
@@ -271,11 +309,12 @@ function publishLocal(
   tx: number,
   ty: number,
   facing: RemotePlayer["facing"],
+  idle: boolean,
 ): void {
-  lastSent = { tx, ty, facing };
+  lastSent = { tx, ty, facing, idle };
   if (!positionsSub || !self) {
     console.log(
-      `${LOG} publishLocal queued (sub not ready) tx=${tx} ty=${ty}`,
+      `${LOG} publishLocal queued (sub not ready) tx=${tx} ty=${ty} idle=${idle}`,
     );
     return;
   }
@@ -286,10 +325,11 @@ function publishLocal(
     tx,
     ty,
     f: facing,
+    i: idle,
   };
   positionsSub.publish(payload).then(
     () => {
-      console.log(`${LOG} publish ok tx=${tx} ty=${ty}`);
+      console.log(`${LOG} publish ok tx=${tx} ty=${ty} idle=${idle}`);
     },
     (err) => {
       console.warn(`${LOG} publish failed`, err);
@@ -310,6 +350,10 @@ function stop(): void {
   if (staleTimer !== null) {
     window.clearInterval(staleTimer);
     staleTimer = null;
+  }
+  if (heartbeatTimer !== null) {
+    window.clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
   }
   notify();
 }
