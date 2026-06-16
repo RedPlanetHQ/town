@@ -9,6 +9,8 @@
 //   6. set the opaque session cookie and redirect back into the app
 
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
+
 import { prisma } from "@/lib/db";
 import {
   exchangeCodeForTokens,
@@ -85,7 +87,21 @@ export async function GET(req: NextRequest) {
     .deleteMany({ where: { expiresAt: { lt: new Date() } } })
     .catch(() => {});
 
-  return NextResponse.redirect(absolute(req, stored.redirectAfter ?? "/"));
+  // Bust both the Router Cache entry and the layout's RSC payload so
+  // the post-redirect render reflects the new session immediately.
+  // Without this, the previously-served guest page (rendered when the
+  // user clicked Sign in) could be re-used after the redirect, hiding
+  // the just-created onboarding screen until a hard refresh.
+  const target = stored.redirectAfter ?? "/";
+  try {
+    revalidatePath(target, "page");
+    revalidatePath(target, "layout");
+  } catch {
+    // revalidatePath is unavailable during edge contexts we don't
+    // hit today; silently ignore so the login still completes.
+  }
+
+  return NextResponse.redirect(absolute(req, target));
 }
 
 function redirectToError(req: NextRequest, message: string) {
