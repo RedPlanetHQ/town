@@ -5,16 +5,16 @@
   <!-- Mark scaled 0.85 and optically centered (shifted up 20px) -->
   <g transform="translate(38.4 18.83) scale(0.85)">
     <!-- Left building (rounded) with rounded window cutout -->
-    <path d="M 90 283 H 170 A 10 10 0 0 1 180 293 V 418 A 10 10 0 0 1 170 428 H 90 A 10 10 0 0 1 80 418 V 293 A 10 10 0 0 1 90 283 Z M 119 318 H 141 A 3 3 0 0 1 144 321 V 343 A 3 3 0 0 1 141 346 H 119 A 3 3 0 0 1 116 343 V 321 A 3 3 0 0 1 119 318 Z" fill-rule="evenodd" fill="#303030"/>
+    <path d="M 102 283 H 158 A 22 22 0 0 1 180 305 V 406 A 22 22 0 0 1 158 428 H 102 A 22 22 0 0 1 80 406 V 305 A 22 22 0 0 1 102 283 Z M 122 318 H 138 A 6 6 0 0 1 144 324 V 340 A 6 6 0 0 1 138 346 H 122 A 6 6 0 0 1 116 340 V 324 A 6 6 0 0 1 122 318 Z" fill-rule="evenodd" fill="#303030"/>
 
     <!-- Center tower (rounded) with clock-face cutout -->
-    <path d="M 263.20 97.79 L 311.19 196.34 A 8 8 0 0 1 312 199.85 L 312 420 A 8 8 0 0 1 304 428 L 208 428 A 8 8 0 0 1 200 420 L 200 199.85 A 8 8 0 0 1 200.81 196.34 L 248.80 97.79 A 8 8 0 0 1 263.20 97.79 Z M 232 255 a 24 24 0 1 0 48 0 a 24 24 0 1 0 -48 0 Z" fill-rule="evenodd" fill="#303030"/>
+    <path d="M 263.20 97.79 L 311.19 196.34 A 8 8 0 0 1 312 199.85 L 312 410 A 18 18 0 0 1 294 428 L 218 428 A 18 18 0 0 1 200 410 L 200 199.85 A 8 8 0 0 1 200.81 196.34 L 248.80 97.79 A 8 8 0 0 1 263.20 97.79 Z M 232 255 a 24 24 0 1 0 48 0 a 24 24 0 1 0 -48 0 Z" fill-rule="evenodd" fill="#303030"/>
     <!-- Clock hands at 10:10 + center dot -->
     <line x1="256" y1="255" x2="244" y2="246" stroke="#303030" stroke-width="5" stroke-linecap="round"/>
     <line x1="256" y1="255" x2="272" y2="246" stroke="#303030" stroke-width="5" stroke-linecap="round"/>
     <circle cx="256" cy="255" r="3.5" fill="#303030"/>
 
     <!-- Right building (rounded) with rounded window cutout -->
-    <path d="M 342 233 H 422 A 10 10 0 0 1 432 243 V 418 A 10 10 0 0 1 422 428 H 342 A 10 10 0 0 1 332 418 V 243 A 10 10 0 0 1 342 233 Z M 371 268 H 393 A 3 3 0 0 1 396 271 V 293 A 3 3 0 0 1 393 296 H 371 A 3 3 0 0 1 368 293 V 271 A 3 3 0 0 1 371 268 Z" fill-rule="evenodd" fill="#303030"/>
+    <path d="M 354 233 H 410 A 22 22 0 0 1 432 255 V 406 A 22 22 0 0 1 410 428 H 354 A 22 22 0 0 1 332 406 V 255 A 22 22 0 0 1 354 233 Z M 374 268 H 390 A 6 6 0 0 1 396 274 V 290 A 6 6 0 0 1 390 296 H 374 A 6 6 0 0 1 368 290 V 274 A 6 6 0 0 1 374 268 Z" fill-rule="evenodd" fill="#303030"/>
   </g>
 </svg>
