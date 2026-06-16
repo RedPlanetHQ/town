@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { bootGame, type GameContext } from "../game/boot";
-import { BootScreen, hasBooted } from "./BootScreen";
+import { BootScreen } from "./BootScreen";
 import { refreshSession } from "../game/auth";
 import { startInboxPoller } from "../game/inbox";
 import { startNowPlayingPoller } from "../game/spotify";
@@ -61,14 +61,14 @@ export type TownGameProps =
 export function TownGame(props: TownGameProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctxRef = useRef<GameContext | null>(null);
-  // Once-per-session CORE OS boot screen. We default to "show" on the
-  // server so the markup matches the first client render; the effect
-  // below dismisses immediately if sessionStorage already remembers a
-  // prior boot in this tab.
+  // Single startup overlay: the CORE OS boot screen sits over the
+  // canvas, runs its 1.4s sweep, then waits for the kaplay scene to
+  // flip ui.worldReady before dismissing. That collapses what used
+  // to be three loading states (browser flash → boot → in-canvas
+  // "loading town…") into one continuous screen. sessionStorage skip
+  // is intentionally NOT applied here — we always want the overlay
+  // to wait for the scene to finish drawing, even on soft navs.
   const [bootVisible, setBootVisible] = useState(true);
-  useEffect(() => {
-    if (hasBooted()) setBootVisible(false);
-  }, []);
   const {
     hud,
     prompt,
@@ -84,6 +84,7 @@ export function TownGame(props: TownGameProps = {}) {
     proximity,
     dm,
     suggestions,
+    worldReady,
   } = useUiState();
 
   const isVisitor = props.viewerMode === "visitor";
@@ -253,7 +254,10 @@ export function TownGame(props: TownGameProps = {}) {
       ) : null}
 
       {bootVisible ? (
-        <BootScreen onDone={() => setBootVisible(false)} />
+        <BootScreen
+          ready={worldReady}
+          onDone={() => setBootVisible(false)}
+        />
       ) : null}
     </div>
   );

@@ -400,15 +400,15 @@ body {
   background-position: 0 0, 3px 4px;
 }
 
-/* In dark mode the wallpaper goes dark too — match CORE's --background
- * with a low-contrast speckle on top so the polka-dot identity is kept
- * but it doesn't fight the rest of the dark UI. */
+/* In dark mode the body flat-fills with the BootScreen's #1a1a1a so
+ * the pre-React paint (browser shows body bg while the JS bundle
+ * downloads) blends seamlessly into the boot screen that mounts on
+ * top. No polka-dot pattern in dark mode — the canvas covers the
+ * surface anyway. */
 :root.dark body {
   color: var(--foreground);
-  background-color: var(--background);
-  background-image:
-    radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    radial-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-color: #1a1a1a;
+  background-image: none;
 }
 
 /* ============================================================================

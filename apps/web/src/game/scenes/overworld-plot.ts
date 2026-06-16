@@ -253,14 +253,11 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
   k.scene("overworld-plot", (opts: OverworldPlotOpts = {}) => {
     k.setBackground(hex(k, GRASS_HEX));
 
-    // Loading placeholder while we fetch.
-    const loadingText = k.add([
-      k.text("loading town…", { size: 12 }),
-      k.anchor("center"),
-      k.pos(VIEW_W / 2, VIEW_H / 2),
-      k.fixed(),
-      k.z(100),
-    ]);
+    // React's <BootScreen> sits over the canvas with z-100 until the
+    // ui store's worldReady flag flips, so no in-canvas loading text
+    // is needed any more. We reset the flag on every scene entry so a
+    // refresh / interior round-trip re-arms the overlay.
+    ui.setWorldReady(false);
 
     let unsubscribe: (() => void) | null = null;
     let unsubSession: (() => void) | null = null;
@@ -276,7 +273,7 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       // Load it before we decide what to render.
       const manifest = await loadManifest();
       if (!manifest) {
-        loadingText.text = "missing extras manifest";
+        console.error("[overworld] missing extras manifest");
         return;
       }
 
@@ -290,9 +287,6 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       const { plot, version } = payload;
       await loadPlotSprites(k, plot, manifest);
 
-      // Done loading — drop the placeholder.
-      loadingText.destroy();
-
       const worldW = plot.world.w;
       const worldH = plot.world.h;
       const worldPxW = worldW * TILE;
@@ -304,6 +298,11 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       const pathSet  = drawPaths(k, plot.paths);
       drawDecor(k, plot.decor);
       for (const b of plot.buildings) drawBuilding(k, b);
+
+      // Tell React the world is rendered — BootScreen can dismiss
+      // itself (after its sweep finishes) and the overworld becomes
+      // visible without an extra in-canvas loading text.
+      ui.setWorldReady(true);
 
       // --- Collision + door routing.
       const blocked = new Set<string>();

@@ -187,6 +187,10 @@ type State = {
   proximity: ProximityState;
   dm: DmState;
   suggestions: SuggestionsState;
+  // True once the active scene has fetched the plot + manifest + drawn
+  // the world. BootScreen holds itself on screen until this flips so
+  // there's a single uninterrupted loading state instead of three.
+  worldReady: boolean;
 };
 
 let state: State = {
@@ -209,6 +213,7 @@ let state: State = {
     open: false,
     fetchedAt: new Date(0).toISOString(),
   },
+  worldReady: false,
 };
 
 const listeners = new Set<() => void>();
@@ -360,6 +365,12 @@ export const ui = {
       ...state,
       suggestions: { ...state.suggestions, ...next },
     };
+    emit();
+  },
+
+  setWorldReady(ready: boolean) {
+    if (state.worldReady === ready) return;
+    state = { ...state, worldReady: ready };
     emit();
   },
 
