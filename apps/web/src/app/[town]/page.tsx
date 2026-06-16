@@ -35,7 +35,7 @@ export async function generateMetadata({
 
   const hdrs = await headers();
   const host =
-    hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3000";
+    hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "town.getcore.me";
   const proto =
     hdrs.get("x-forwarded-proto") ??
     (host.startsWith("localhost") ? "http" : "https");

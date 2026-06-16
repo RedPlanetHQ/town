@@ -86,8 +86,14 @@ export function Invite() {
   }, []);
 
   const inviteUrl = useMemo(() => {
-    if (!slug || typeof window === "undefined") return null;
-    const base = `${window.location.origin}/${slug}`;
+    if (!slug) return null;
+    // Share links always point at the configured site host (default
+    // town.getcore.me) so localhost / ngrok previews still generate
+    // URLs the recipient can actually open. NEXT_PUBLIC_SITE_URL is
+    // injected at build time.
+    const origin =
+      process.env.NEXT_PUBLIC_SITE_URL ?? "https://town.getcore.me";
+    const base = `${origin}/${slug}`;
     return code ? `${base}?invite_code=${encodeURIComponent(code)}` : base;
   }, [slug, code]);
 

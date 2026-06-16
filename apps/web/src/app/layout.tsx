@@ -23,10 +23,11 @@ const pressStart2P = Press_Start_2P({
 
 // metadataBase resolves relative URLs in per-route `generateMetadata`
 // (e.g. og:image: "/api/towns/<slug>/postcard.png") to absolute URLs.
-// Falls back to localhost during dev when NEXT_PUBLIC_SITE_URL isn't
-// configured.
+// Defaults to the production host (town.getcore.me) so any deploy that
+// forgets to set NEXT_PUBLIC_SITE_URL still ships share links pointing
+// at prod instead of localhost. Override per-environment when needed.
 const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://town.getcore.me";
 
 // Defaults that flow through every page. Per-page metadata can:
 //   • override title — picks up the template, so a page that exports
