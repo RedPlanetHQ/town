@@ -8,12 +8,6 @@ import { useEffect, useState } from "react";
 // (`worldReady`) that the plot is drawn yet. Single overlay covers the
 // whole startup so there's no flash between the boot bar and an
 // in-canvas loading state.
-//
-// Persists "I've already booted in this session" in sessionStorage so
-// the sweep doesn't replay on every soft navigation — closing /
-// reopening the tab shows it again.
-
-const SESSION_KEY = "core-town:booted";
 
 export function BootScreen({
   ready,
@@ -57,11 +51,6 @@ export function BootScreen({
   // complete instead of snapping away mid-animation.
   useEffect(() => {
     if (!swept || !ready) return;
-    try {
-      sessionStorage.setItem(SESSION_KEY, "1");
-    } catch {
-      // ignore
-    }
     const t = window.setTimeout(onDone, 220);
     return () => window.clearTimeout(t);
   }, [swept, ready, onDone]);
@@ -74,7 +63,7 @@ export function BootScreen({
     <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#1a1a1a] font-mono text-[#e8e4d8]">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/town_logo_plate_light.svg"
+        src="/town_logo_light.svg"
         alt="town"
         className="mb-3 h-24 w-24"
         draggable={false}
@@ -94,13 +83,4 @@ export function BootScreen({
       </div>
     </div>
   );
-}
-
-export function hasBooted(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return sessionStorage.getItem(SESSION_KEY) === "1";
-  } catch {
-    return false;
-  }
 }
