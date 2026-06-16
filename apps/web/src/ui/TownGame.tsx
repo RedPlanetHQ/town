@@ -272,11 +272,6 @@ export function TownGame(props: TownGameProps = {}) {
         />
       ) : null}
 
-      {bootVisible ? (
-        <BootScreen
-          ready={worldReady}
-          onDone={() => setBootVisible(false)}
-        />
       {/* Bottom-right CTA — visitor only. Pitches the invitee on
           building their own town; opens town.getcore.me in a new tab
           so they don't lose their current visit. */}
@@ -286,7 +281,12 @@ export function TownGame(props: TownGameProps = {}) {
         </div>
       ) : null}
 
-      {bootVisible ? <BootScreen onDone={() => setBootVisible(false)} /> : null}
+      {bootVisible ? (
+        <BootScreen
+          ready={worldReady}
+          onDone={() => setBootVisible(false)}
+        />
+      ) : null}
     </div>
   );
 }
