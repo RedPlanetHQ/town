@@ -21,30 +21,52 @@ import { z } from "zod";
 
 import { resolveUser } from "@/lib/auth-bearer";
 import { getChatModel } from "@/lib/chat-model";
-import { getSystemNpcs } from "@/lib/system-npcs";
+import { safeBlock, safeInline } from "@/lib/prompt-sanitize";
+import { getSystemNpcs, type SystemNpc } from "@/lib/system-npcs";
+import { resolveViewer } from "@/lib/viewer";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const BodySchema = z.object({
-  // Kept for parity with /api/npc-chat; today this route only ever
-  // serves the Founder, so we default to "core-founder" if it's
-  // missing. Holding the field also lets us reuse the same transport
-  // body shape on the client.
-  npcId: z.string().min(1).optional(),
-  mode: z.enum(["direct", "invited"]).default("direct"),
-  invitee: z.object({ name: z.string().min(1) }).optional(),
-  messages: z.array(
-    z.object({
-      id: z.string().optional(),
-      role: z.enum(["system", "user", "assistant"]),
-      content: z.string().optional(),
-      parts: z
-        .array(z.object({ type: z.string(), text: z.string().optional() }))
-        .optional(),
-    }),
-  ),
-});
+const BodySchema = z
+  .object({
+    // Kept for parity with /api/npc-chat; today this route only ever
+    // serves the Founder, so we default to "core-founder" if it's
+    // missing. Holding the field also lets us reuse the same transport
+    // body shape on the client.
+    npcId: z.string().min(1).optional(),
+    mode: z.enum(["direct", "invited"]).default("direct"),
+    // Capped because it gets interpolated into the system prompt.
+    invitee: z.object({ name: z.string().min(1).max(80) }).optional(),
+    // Set by the client whenever the caller is touring someone else's
+    // town. The Founder has no per-town state, but we use it to tell
+    // the model whether the speaker is a resident or a guest — keeps
+    // parity with /api/npc-chat and future-proofs Founder-only tools.
+    townSlug: z.string().min(1).optional(),
+    messages: z.array(
+      z.object({
+        id: z.string().optional(),
+        role: z.enum(["system", "user", "assistant"]),
+        content: z.string().optional(),
+        parts: z
+          .array(z.object({ type: z.string(), text: z.string().optional() }))
+          .optional(),
+      }),
+    ),
+  })
+  .refine((b) => (b.mode === "invited" ? !!b.invitee : !b.invitee), {
+    message: "invitee must be present iff mode is 'invited'",
+    path: ["invitee"],
+  });
+
+// Speaker context fed to the model. The Founder doesn't gate any tool
+// on this today (he has none), but recording who's on the other side
+// lets the model address them correctly and future-proofs the prompt
+// for when Founder-only tools land.
+interface ViewerContext {
+  isOwner: boolean;
+  name: string;
+}
 
 // Founder-specific base prompt. Kept deliberately distinct from
 // /api/npc-chat's BASE_PROMPT so the two voices don't drift over time.
@@ -66,34 +88,53 @@ Style:
 - It's fine to reference the town world ("come hang out at the store
   any time…") but the topic is CORE: product, roadmap, philosophy.`;
 
+// Same four-block structure as /api/npc-chat:
+//   1. FOUNDER_BASE_PROMPT — global Founder rules (persona, style).
+//   2. Character block     — name, role (description), voice (MDX body).
+//   3. Speaker block       — who's on the other side (resident vs guest).
+//   4. Conversation mode   — direct 1:1 or invited (guest present).
+//
+// Every interpolated string passes through safeInline / safeBlock so
+// neither the MDX body (trusted, but defence in depth) nor the user-
+// controlled invitee / speaker name can inject a fake structural block.
 function buildSystemPrompt(
-  bodyPrompt: string,
+  founder: SystemNpc,
   mode: "direct" | "invited",
-  invitee?: { name: string },
+  invitee: { name: string } | undefined,
+  viewer: ViewerContext,
 ): string {
+  const name = safeInline(founder.name, 80);
+  const role = safeInline(founder.description, 240);
+  const voice = safeBlock(founder.prompt, 4000);
+  const speakerName = safeInline(viewer.name, 80) || "the player";
+  const inviteeName = invitee ? safeInline(invitee.name, 80) : "";
+
+  const characterLines = [`Character: ${name}`];
+  if (role) characterLines.push(`Role: ${role}`);
+  characterLines.push("", "Voice & behaviour (from the source MDX):", voice);
+  const characterBlock = characterLines.join("\n");
+
+  const speakerBlock = viewer.isOwner
+    ? `Speaker: ${speakerName} — running their own town. Treat them as a regular CORE user you happen to be chatting with.`
+    : `Speaker: ${speakerName} — currently touring another player's town. Treat them as a regular CORE user; you have no special context about whose town they're in.`;
+
   const modeBlock =
-    mode === "invited" && invitee
-      ? `\nMode: the player has invited ${invitee.name} to this conversation. ` +
-        `You can address either of them.`
-      : `\nMode: direct one-on-one between you and the player.`;
+    mode === "invited" && inviteeName
+      ? `Conversation mode: the speaker has brought ${inviteeName} into this conversation. You can address either of them.`
+      : `Conversation mode: direct one-on-one between you and the speaker.`;
+
   return [
     FOUNDER_BASE_PROMPT,
     "",
-    "Founder voice (from the source MDX):",
-    bodyPrompt.trim(),
+    characterBlock,
+    "",
+    speakerBlock,
+    "",
     modeBlock,
   ].join("\n");
 }
 
 export async function POST(req: Request) {
-  const resolved = await resolveUser(req);
-  if (!resolved) {
-    return new Response(JSON.stringify({ error: "unauthorized" }), {
-      status: 401,
-      headers: { "content-type": "application/json" },
-    });
-  }
-
   let body;
   try {
     body = BodySchema.parse(await req.json());
@@ -114,7 +155,35 @@ export async function POST(req: Request) {
     });
   }
 
-  const system = buildSystemPrompt(founder.prompt, body.mode, body.invitee);
+  // Speaker context.
+  //   • townSlug present → resolveViewer authorizes anyone with a valid
+  //     visit cookie (or the owner's session). Anonymous guests can
+  //     chat — the Founder has no tools today, so there's no token to
+  //     gate on.
+  //   • townSlug absent → legacy path. Require resolveUser since
+  //     there's no other identity signal.
+  let viewer: ViewerContext;
+  if (body.townSlug) {
+    const view = await resolveViewer(body.townSlug);
+    if ("error" in view) {
+      return new Response(JSON.stringify({ error: view.error }), {
+        status: view.error === "not-found" ? 404 : 403,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    viewer = { isOwner: view.isOwner, name: view.displayName };
+  } else {
+    const resolved = await resolveUser(req);
+    if (!resolved) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    viewer = { isOwner: true, name: resolved.user.name || "the owner" };
+  }
+
+  const system = buildSystemPrompt(founder, body.mode, body.invitee, viewer);
 
   const uiMessages: UIMessage[] = body.messages.map((m, i) => ({
     id: m.id ?? `m-${i}`,

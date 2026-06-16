@@ -28,9 +28,10 @@ import { ui } from "../../ui/store";
 import { loadPlot, subscribePlot } from "../plotClient";
 import {
   getActiveTownSlug,
-  getRemotePlayers,
+  getRemotePlayersForScene,
   getSelfIdentity,
   publishLocalPosition,
+  setLocalScene,
 } from "../realtime";
 import {
   defaultPlot,
@@ -53,9 +54,10 @@ import {
 
 function exteriorSpriteId(b: PlotBuilding): string {
   // e.g. "exteriors/home/villa-1.png" -> "ext:home/villa-1"
-  return "ext:" + b.exteriorSprite
-    .replace(/^exteriors\//, "")
-    .replace(/\.(png|gif)$/, "");
+  return (
+    "ext:" +
+    b.exteriorSprite.replace(/^exteriors\//, "").replace(/\.(png|gif)$/, "")
+  );
 }
 
 function decorSpriteId(group: string, spriteId: string): string {
@@ -64,7 +66,9 @@ function decorSpriteId(group: string, spriteId: string): string {
 
 async function loadManifest(): Promise<Manifest | null> {
   try {
-    const res = await fetch("/sprites/extras/MANIFEST.json", { cache: "no-store" });
+    const res = await fetch("/sprites/extras/MANIFEST.json", {
+      cache: "no-store",
+    });
     if (!res.ok) return null;
     return (await res.json()) as Manifest;
   } catch {
@@ -85,9 +89,7 @@ async function loadPlotSprites(
   for (const b of plot.buildings) {
     const id = exteriorSpriteId(b);
     loads.push(
-      Promise.resolve(
-        k.loadSprite(id, `/sprites/catalog/${b.exteriorSprite}`),
-      ),
+      Promise.resolve(k.loadSprite(id, `/sprites/catalog/${b.exteriorSprite}`)),
     );
   }
 
@@ -97,13 +99,18 @@ async function loadPlotSprites(
     const key = d.group + ":" + d.spriteId;
     if (decorSeen.has(key)) continue;
     decorSeen.add(key);
-    const groupEntries = (manifest as unknown as Record<string, { id: string; file: string }[]>)[d.group];
+    const groupEntries = (
+      manifest as unknown as Record<string, { id: string; file: string }[]>
+    )[d.group];
     if (!groupEntries) continue;
     const entry = groupEntries.find((e) => e.id === d.spriteId);
     if (!entry) continue;
     loads.push(
       Promise.resolve(
-        k.loadSprite(decorSpriteId(d.group, d.spriteId), "/sprites/extras/" + entry.file),
+        k.loadSprite(
+          decorSpriteId(d.group, d.spriteId),
+          "/sprites/extras/" + entry.file,
+        ),
       ),
     );
   }
@@ -138,11 +145,7 @@ function drawPaths(k: KAPLAYCtx, paths: PlotPath[]): Set<string> {
     const x = parseInt(xs!, 10);
     const y = parseInt(ys!, 10);
     const sprite = autotile9Slice(set, x, y, "path");
-    k.add([
-      k.sprite(sprite),
-      k.pos(x * TILE, y * TILE),
-      k.z(0.2),
-    ]);
+    k.add([k.sprite(sprite), k.pos(x * TILE, y * TILE), k.z(0.2)]);
   }
   return set;
 }
@@ -161,11 +164,7 @@ function drawPonds(k: KAPLAYCtx, ponds: PlotPond[]): Set<string> {
     const x = parseInt(xs!, 10);
     const y = parseInt(ys!, 10);
     const sprite = autotile9Slice(set, x, y, "pond");
-    k.add([
-      k.sprite(sprite),
-      k.pos(x * TILE, y * TILE),
-      k.z(0.15),
-    ]);
+    k.add([k.sprite(sprite), k.pos(x * TILE, y * TILE), k.z(0.15)]);
   }
   return set;
 }
@@ -287,6 +286,12 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       const { plot, version } = payload;
       await loadPlotSprites(k, plot, manifest);
 
+      // Tell realtime we're in the overworld so heartbeats + sleep/wake
+      // publishes carry the correct scene tag. Without this, a visitor
+      // who just exited an interior would keep broadcasting the old
+      // interior scene id until their next move.
+      setLocalScene("overworld");
+
       const worldW = plot.world.w;
       const worldH = plot.world.h;
       const worldPxW = worldW * TILE;
@@ -294,8 +299,8 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
 
       // --- Render order: ground → ponds → paths → decor → buildings.
       drawGround(k, worldW, worldH);
-      const pondSet  = drawPonds(k, plot.ponds);
-      const pathSet  = drawPaths(k, plot.paths);
+      const pondSet = drawPonds(k, plot.ponds);
+      const pathSet = drawPaths(k, plot.paths);
       drawDecor(k, plot.decor);
       for (const b of plot.buildings) drawBuilding(k, b);
 
@@ -368,7 +373,8 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
         ? CATEGORY_BY_LEGACY[opts.spawnFrom]
         : undefined;
       const spawnBuilding =
-        (targetCategory && plot.buildings.find((b) => b.category === targetCategory)) ||
+        (targetCategory &&
+          plot.buildings.find((b) => b.category === targetCategory)) ||
         plot.buildings.find((b) => b.plotKey === "home") ||
         plot.buildings[0];
       // Spawn one tile south of the building's door tile. The door is at
@@ -386,17 +392,29 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       const onArrive = (tile: Tile) => {
         // Realtime: every tile change is one publish. Quantized by design —
         // no per-tween-frame spam.
-        publishLocalPosition({ tx: tile.tx, ty: tile.ty, facing: player.facing });
+        publishLocalPosition({
+          tx: tile.tx,
+          ty: tile.ty,
+          facing: player.facing,
+        });
         const owner = doorOwner.get(tile.tx + "," + tile.ty);
         if (!owner) return;
         // Route into the legacy interior scene by category. Future: read
         // owner.variantId, look up MDX-driven interior.
-        const key = owner.category as "HOME" | "OFFICE" | "READ" | "MARKET" | "WORK";
+        const key = owner.category as
+          | "HOME"
+          | "OFFICE"
+          | "READ"
+          | "MARKET"
+          | "WORK";
         const legacyKey =
-          key === "HOME" ? "HOME" :
-          key === "READ" ? "LIBRARY" :
-          key === "MARKET" ? "STORE" :
-          "OFFICE";
+          key === "HOME"
+            ? "HOME"
+            : key === "READ"
+              ? "LIBRARY"
+              : key === "MARKET"
+                ? "STORE"
+                : "OFFICE";
         k.go("interior", { building: legacyKey });
       };
 
@@ -410,8 +428,10 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       });
 
       // Spawn / move / despawn remote players as the realtime channel
-      // pushes updates. Returns a teardown for scene-leave.
-      detachRemotes = attachRemotePlayers(k);
+      // pushes updates. Filtered to "overworld" so visitors who have
+      // walked into a house don't render as ghosts at the door tile.
+      // Returns a teardown for scene-leave.
+      detachRemotes = attachRemotePlayers(k, { scene: "overworld" });
 
       // Camera — follow the player at 1:1 scale, clamped so the view
       // never reaches past the world edge. The kaplay canvas's own
@@ -450,7 +470,7 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
         let bestName = "";
         let bestCharacter = "";
         let bestDist = Infinity;
-        for (const r of getRemotePlayers()) {
+        for (const r of getRemotePlayersForScene("overworld")) {
           const d = Math.max(
             Math.abs(r.tx - player.tile.tx),
             Math.abs(r.ty - player.tile.ty),

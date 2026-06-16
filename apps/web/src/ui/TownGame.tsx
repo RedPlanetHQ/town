@@ -10,7 +10,12 @@ import { startSuggestionsPoller } from "../game/suggestions";
 import { startWorkspaceSync } from "../game/workspace";
 import { setViewerTownSlug } from "../game/plotClient";
 import { setPlayerCharacter } from "../game/character";
-import { startRealtime, type RealtimeHandle } from "../game/realtime";
+import {
+  startRealtime,
+  getRemotePlayers,
+  onRemotesChange,
+  type RealtimeHandle,
+} from "../game/realtime";
 import { startPendingPoller } from "../game/dmPending";
 import { OWNER_DEFAULT_CHARACTER } from "../lib/characters";
 import { useUiState } from "./useUiStore";
@@ -56,6 +61,10 @@ export type TownGameProps =
       townName: string;
       visitorName: string;
       visitorCharacter: string;
+      // Owner's participantKey (e.g. "user:<userId>"). Used by the
+      // population badge to tell the invitee whether the owner is
+      // currently in the town.
+      ownerParticipantKey: string;
     };
 
 export function TownGame(props: TownGameProps = {}) {
@@ -204,15 +213,25 @@ export function TownGame(props: TownGameProps = {}) {
         </div>
       ) : null}
 
-      {/* Spotify card + Suggestions badge stack — owner only. Suggestions
-          first so it sits at the top-right corner where the user expects
-          a notifications affordance. */}
-      {!isVisitor ? (
-        <div className="pointer-events-auto absolute right-4 top-4 z-30 flex flex-col items-end gap-2">
-          <SuggestionsBadge count={suggestions.count} />
-          <NowPlaying state={nowPlaying} />
-        </div>
-      ) : null}
+      {/* Top-right stack. Population badge sits on top for both owner +
+          visitor — it's a shared "how busy is this town" signal. Owner
+          also gets Suggestions + NowPlaying below it. */}
+      <div className="pointer-events-auto absolute right-4 top-4 z-30 flex flex-col items-end gap-2">
+        <PopulationBadge
+          ownerParticipantKey={
+            isVisitor
+              ? (props as { ownerParticipantKey: string }).ownerParticipantKey
+              : null
+          }
+          alwaysShow={isVisitor}
+        />
+        {!isVisitor ? (
+          <>
+            <SuggestionsBadge count={suggestions.count} />
+            <NowPlaying state={nowPlaying} />
+          </>
+        ) : null}
+      </div>
 
       {prompt ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-8 z-30 flex justify-center">
@@ -258,8 +277,94 @@ export function TownGame(props: TownGameProps = {}) {
           ready={worldReady}
           onDone={() => setBootVisible(false)}
         />
+      {/* Bottom-right CTA — visitor only. Pitches the invitee on
+          building their own town; opens town.getcore.me in a new tab
+          so they don't lose their current visit. */}
+      {isVisitor ? (
+        <div className="pointer-events-auto absolute right-4 bottom-4 z-30">
+          <BuildYourOwnTownCta />
+        </div>
+      ) : null}
+
+      {bootVisible ? <BootScreen onDone={() => setBootVisible(false)} /> : null}
+    </div>
+  );
+}
+
+// Top-right "Population: N" card. Counts every remote player the realtime
+// bus knows about plus the local viewer.
+//
+// Visitor mode passes `ownerParticipantKey` + `alwaysShow=true` so the
+// invitee always sees the card and, when the owner isn't currently in
+// town, an "owner away" tag underneath the count. Owner mode passes
+// `null` + `alwaysShow=false` so the card stays hidden until at least
+// one *other* person joins.
+function PopulationBadge({
+  ownerParticipantKey,
+  alwaysShow,
+}: {
+  ownerParticipantKey: string | null;
+  alwaysShow: boolean;
+}) {
+  const [remotes, setRemotes] = useState(() => getRemotePlayers());
+  useEffect(() => {
+    const update = () => setRemotes(getRemotePlayers());
+    update();
+    return onRemotesChange(update);
+  }, []);
+  const remoteCount = remotes.length;
+  if (!alwaysShow && remoteCount < 1) return null;
+  const total = remoteCount + 1;
+  const ownerAway =
+    !!ownerParticipantKey &&
+    !remotes.some((r) => r.participantKey === ownerParticipantKey);
+  return (
+    <div
+      className="nb-card flex flex-col items-end gap-1 px-3 py-2"
+      style={{ background: "#ffffff" }}
+      aria-label={`Population: ${total}${ownerAway ? ", owner not in town" : ""}`}
+      title={
+        ownerAway
+          ? `${total} in town · owner isn't here right now`
+          : `${total} people in this town`
+      }
+    >
+      <span className="text-[12px] font-bold leading-tight text-ink">
+        Population: {total}
+      </span>
+      {ownerAway ? (
+        <span className="text-[10px] font-bold uppercase leading-tight tracking-wide text-ink opacity-60">
+          Owner not in town
+        </span>
       ) : null}
     </div>
+  );
+}
+
+// Bottom-right "Build your own town" CTA shown only on visitor view.
+// Opens town.getcore.me in a new tab so the invitee can start their
+// own town without losing the visit they're already in.
+function BuildYourOwnTownCta() {
+  return (
+    <a
+      href="https://town.getcore.me"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="nb-card flex items-center gap-2 px-3 py-1 text-left"
+      style={{ background: "#ffffff" }}
+      title="Start your own town at town.getcore.me"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/town_logo_dark.svg"
+        alt=""
+        aria-hidden
+        className="h-4 w-4 shrink-0"
+      />
+      <span className="text-[12px] font-bold leading-tight text-ink">
+        Build your own town
+      </span>
+    </a>
   );
 }
 

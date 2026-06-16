@@ -10,6 +10,7 @@
 // — same auth header CORE accepts everywhere.
 
 import { cookies } from "next/headers";
+import { prisma } from "./db";
 import { SESSION_COOKIE, getAccessTokenForSession } from "./session";
 
 function readBearer(req: Request): string | null {
@@ -27,6 +28,34 @@ export async function getCoreToken(req: Request): Promise<string | null> {
   if (!sid) return null;
   try {
     return await getAccessTokenForSession(sid);
+  } catch {
+    return null;
+  }
+}
+
+// Resolve a CORE access token for a specific town User (the *owner*),
+// regardless of who's actually calling the route. This is what every
+// NPC chat uses for `memory_search`: the NPC searches the town owner's
+// CORE memory, and the owner's authored NPC prompt is what decides
+// how much of it leaks to visitors. Picks the most-recently-used
+// non-expired Session row for the user and refreshes its access token
+// if needed. Returns null if the owner has no usable session (e.g.
+// only ever signed in via PAT) — callers should handle that by
+// returning a "no memory available" tool result rather than 5xx.
+export async function getOwnerCoreToken(
+  ownerUserId: string,
+): Promise<string | null> {
+  const session = await prisma.session.findFirst({
+    where: {
+      userId: ownerUserId,
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { lastUsedAt: "desc" },
+    select: { id: true },
+  });
+  if (!session) return null;
+  try {
+    return await getAccessTokenForSession(session.id);
   } catch {
     return null;
   }

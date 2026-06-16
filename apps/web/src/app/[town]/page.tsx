@@ -13,6 +13,7 @@ import { notFound } from "next/navigation";
 
 import { OWNER_DEFAULT_CHARACTER } from "@/lib/characters";
 import { prisma } from "@/lib/db";
+import { userParticipantKey } from "@/lib/participant";
 import { getSessionFromCookie } from "@/lib/session";
 import { getTownBySlug } from "@/lib/town";
 import { normalizeCode, parseVisitorCookie, visitorCookieName } from "@/lib/town-code";
@@ -118,6 +119,7 @@ export default async function TownPage({
         townName={town.name}
         visitorName={visitor.n}
         visitorCharacter={visitor.ch}
+        ownerParticipantKey={userParticipantKey(town.ownerId)}
       />
     );
   }

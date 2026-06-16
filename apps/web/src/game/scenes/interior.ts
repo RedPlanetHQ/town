@@ -2,11 +2,13 @@ import type { KAPLAYCtx } from "kaplay";
 import { TILE, VIEW_W, VIEW_H, INK, CREAM, PALETTE, hex } from "../config";
 import { theme, type BuildingKey } from "../theme";
 import { makePlayer } from "../entities/player";
+import { attachRemotePlayers } from "../entities/remotePlayer";
 import { getSession, logout, startLogin } from "../auth";
 import { GUEST_CTA_KEY, openGuestCta } from "../guestCta";
 import { getWorkspace } from "../workspace";
+import { publishLocalPosition, setLocalScene } from "../realtime";
 import { ui } from "../../ui/store";
-import { isViewerOwner } from "../plotClient";
+import { getViewerTownSlug, isViewerOwner } from "../plotClient";
 
 // ===========================================================================
 // Interior scene — one generic scene used for all four buildings.
@@ -415,6 +417,31 @@ function homeNpcAccent(): string {
 
 function openHomeNpcDialogue() {
   const session = getSession();
+  // Guest path: no session but a validated visit cookie (we know
+  // because the viewer has a town slug). The home NPC greets them as a
+  // guest and routes straight into chat — memory_search is scoped to
+  // the resident's memory server-side, so they can actually learn
+  // about whoever lives here through the NPC.
+  if (!session && getViewerTownSlug()) {
+    ui.openDialogue({
+      key: "home-npc-guest",
+      speaker: homeNpcName(),
+      accent: homeNpcAccent(),
+      lines: [
+        `Hi, I'm ${homeNpcName()}.`,
+        "I run things around here for the resident. Want to chat?",
+      ],
+      action: {
+        label: "Let's talk",
+        onPress: () => openHomeChat(),
+      },
+      secondary: {
+        label: "Not now",
+        onPress: () => ui.closeDialogue(),
+      },
+    });
+    return;
+  }
   if (!session) {
     ui.openDialogue({
       key: "home-npc-unsigned",
@@ -565,7 +592,12 @@ function openNpcGreeting(opts: {
    *  uses /api/founder-chat for its own prompt + tools. */
   chatApi?: string;
 }): void {
-  if (!getSession()) {
+  // Guests (validated visit cookie) can talk to NPCs without a CORE
+  // session — the server scopes memory_search to the town owner's
+  // memory, and the owner's authored NPC prompt is what controls how
+  // much is disclosed. Only truly anonymous viewers (no session AND
+  // not touring anyone's town) hit the sign-in CTA.
+  if (!getSession() && !getViewerTownSlug()) {
     ui.openDialogue({
       key: `npc-${opts.npcId}-unsigned`,
       speaker: opts.name,
@@ -1095,16 +1127,40 @@ export function registerInteriorScene(k: KAPLAYCtx) {
       return false;
     };
 
+    // Tell realtime we're inside this building. Co-occupants share the
+    // same scene id; the overworld filters us out so the owner doesn't
+    // see a ghost at the front door from the stale last-overworld tile
+    // the heartbeat would otherwise keep re-publishing.
+    const sceneId = `interior:${opts.building}`;
+    setLocalScene(sceneId);
+
     const onArrive = (tile: { tx: number; ty: number }) => {
       if (tile.tx === spec.exit.tx && tile.ty === spec.exit.ty) {
         // Route back to the plot-driven overworld (the new default). The
         // legacy "overworld" scene would render its own procedurally
         // generated layout, which makes the town visibly change on exit.
         k.go("overworld-plot", { spawnFrom: opts.building });
+        return;
       }
+      // Broadcast the new interior-local tile so any co-occupant sees us
+      // move. Without this the heartbeat would only carry the spawn tile.
+      publishLocalPosition({ tx: tile.tx, ty: tile.ty, facing: player.facing });
     };
 
     const player = makePlayer(k, spec.spawn, isBlocked, onArrive);
+
+    // First publish on entry so anyone already inside the same room sees
+    // where we spawned. Mirrors the overworld scene's behaviour.
+    publishLocalPosition({
+      tx: player.tile.tx,
+      ty: player.tile.ty,
+      facing: player.facing,
+    });
+
+    // Spawn / move / despawn co-occupants of THIS interior. Other
+    // visitors who are still in the overworld (or in a different
+    // building) are filtered out by the scene id.
+    const detachRemotes = attachRemotePlayers(k, { scene: sceneId });
 
     // Camera.
     const halfW = VIEW_W / 2;
@@ -1282,11 +1338,11 @@ export function registerInteriorScene(k: KAPLAYCtx) {
       accent: theme.buildings[opts.building].accent,
     });
 
-    // Guests should see the sign-in CTA at all times — including inside
-    // a building. Re-open it here on entry; openGuestCta short-circuits
-    // when it's already the open dialogue so the typewriter doesn't
-    // restart.
-    if (!getSession()) {
+    // The "shared preview" sign-in CTA is for truly anonymous viewers on
+    // the public demo town. Guests touring a real town (have a townSlug
+    // from a validated visit cookie) skip it — they're already in
+    // someone's world and the CTA's "shared preview" copy doesn't apply.
+    if (!getSession() && !getViewerTownSlug()) {
       openGuestCta();
     }
 
@@ -1298,6 +1354,7 @@ export function registerInteriorScene(k: KAPLAYCtx) {
       // cleanup) before the dialogue is yanked.
       fireAutoLeave();
       autoState = null;
+      detachRemotes();
       ui.setPrompt(null);
       ui.closePanel();
       ui.closeExplorer();

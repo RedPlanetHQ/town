@@ -27,6 +27,14 @@ export type RemotePlayer = {
   // had a modal open in that window — surfaced so remote viewers can
   // render the sleeping animation. Default false on absent.
   idle: boolean;
+  // Which scene the remote is currently in. `"overworld"` for the open
+  // town, `"interior:<BuildingKey>"` (e.g. `"interior:HOME"`) for
+  // anyone standing inside a building. Used by scene renderers + the
+  // proximity tick to scope remote sprites to the same room as the
+  // local viewer — otherwise a visitor who walks through the front
+  // door keeps being rendered at the door tile because the heartbeat
+  // re-publishes the last broadcast position.
+  scene: string;
   // Local clock when we last received an update for this player. Used
   // by the heartbeat expiry sweep to drop ghosts when a tab closes
   // without a clean leave.
@@ -42,7 +50,11 @@ type PositionPayload = {
   f: RemotePlayer["facing"];
   // Optional sleeping flag. Older clients omit it; treat as false.
   i?: boolean;
+  // Optional scene id. Older clients omit it; treat as "overworld".
+  s?: string;
 };
+
+const SCENE_OVERWORLD = "overworld";
 
 type Listener = () => void;
 
@@ -59,8 +71,14 @@ let lastSent:
       ty: number;
       facing: RemotePlayer["facing"];
       idle: boolean;
+      scene: string;
     }
   | null = null;
+// Which scene the local player is in. Cached at module level so the
+// player entity (sleep/wake publishes) and the heartbeat tick don't
+// have to thread it through every call. Scenes call `setLocalScene` on
+// entry; defaults to overworld until told otherwise.
+let localScene: string = SCENE_OVERWORLD;
 const remotes = new Map<string, RemotePlayer>();
 const listeners = new Set<Listener>();
 
@@ -76,11 +94,39 @@ export function publishLocalPosition(input: {
   facing: RemotePlayer["facing"];
   idle?: boolean;
 }): void {
-  publishLocal(input.tx, input.ty, input.facing, input.idle ?? false);
+  publishLocal(input.tx, input.ty, input.facing, input.idle ?? false, localScene);
+}
+
+// Update the cached local scene id and immediately re-publish so other
+// viewers stop seeing the stale "still at the door" position the
+// heartbeat would otherwise keep re-sending.
+export function setLocalScene(scene: string): void {
+  if (scene === localScene) return;
+  localScene = scene;
+  if (lastSent) {
+    publishLocal(lastSent.tx, lastSent.ty, lastSent.facing, lastSent.idle, scene);
+  }
+}
+
+export function getLocalScene(): string {
+  return localScene;
 }
 
 export function getRemotePlayers(): RemotePlayer[] {
   return Array.from(remotes.values());
+}
+
+// Same list, filtered to remotes whose `scene` matches the caller's
+// current scene. Used by the overworld + each interior so a visitor
+// who walked into a house doesn't appear stuck at the door tile to the
+// owner outside, and so co-occupants of the same interior see each
+// other.
+export function getRemotePlayersForScene(scene: string): RemotePlayer[] {
+  const out: RemotePlayer[] = [];
+  for (const p of remotes.values()) {
+    if (p.scene === scene) out.push(p);
+  }
+  return out;
 }
 
 export function onRemotesChange(fn: Listener): () => void {
@@ -131,10 +177,12 @@ export function onPendingChange(fn: Listener): () => void {
 }
 
 // How long after the last heartbeat we keep a remote player on screen.
-// Local clients now publish their position every HEARTBEAT_MS even when
+// Local clients publish their position every HEARTBEAT_MS even when
 // standing still, so any gap longer than this means the tab actually
-// went away. 60 s is comfortably above the heartbeat cadence + jitter.
-const STALE_MS = 60_000;
+// went away. 30 s = 3× the heartbeat cadence, so a single dropped
+// publish still keeps the avatar around but a closed tab clears within
+// ~half a minute.
+const STALE_MS = 30_000;
 // Cadence at which we re-publish lastSent (keeps remote viewers from
 // expiring an idle but still-present player). Pick a value much
 // smaller than STALE_MS so a single missed heartbeat doesn't kill the
@@ -154,7 +202,10 @@ function applyPublication(data: unknown) {
     // the publisher. Drop quietly.
     return;
   }
-  console.log(`${LOG} remote update key=${p.k} name=${p.n} tile=${p.tx},${p.ty} idle=${p.i ?? false}`);
+  const scene = typeof p.s === "string" && p.s.length > 0 ? p.s : SCENE_OVERWORLD;
+  console.log(
+    `${LOG} remote update key=${p.k} name=${p.n} tile=${p.tx},${p.ty} idle=${p.i ?? false} scene=${scene}`,
+  );
   remotes.set(p.k, {
     participantKey: p.k,
     name: p.n,
@@ -163,6 +214,7 @@ function applyPublication(data: unknown) {
     ty: p.ty,
     facing: p.f,
     idle: p.i === true,
+    scene,
     lastSeen: performance.now(),
   });
   notify();
@@ -268,7 +320,13 @@ export async function startRealtime({
   sub.on("subscribed", (ctx: SubscribedContext) => {
     console.log(`${LOG} subscribed to ${bootstrap.positionsChannel}`, ctx);
     if (lastSent) {
-      publishLocal(lastSent.tx, lastSent.ty, lastSent.facing, lastSent.idle);
+      publishLocal(
+        lastSent.tx,
+        lastSent.ty,
+        lastSent.facing,
+        lastSent.idle,
+        lastSent.scene,
+      );
     }
   });
   sub.on("subscribing", () =>
@@ -298,6 +356,7 @@ export async function startRealtime({
         lastSent.ty,
         lastSent.facing,
         lastSent.idle,
+        lastSent.scene,
       );
     }, HEARTBEAT_MS);
   }
@@ -310,11 +369,12 @@ function publishLocal(
   ty: number,
   facing: RemotePlayer["facing"],
   idle: boolean,
+  scene: string,
 ): void {
-  lastSent = { tx, ty, facing, idle };
+  lastSent = { tx, ty, facing, idle, scene };
   if (!positionsSub || !self) {
     console.log(
-      `${LOG} publishLocal queued (sub not ready) tx=${tx} ty=${ty} idle=${idle}`,
+      `${LOG} publishLocal queued (sub not ready) tx=${tx} ty=${ty} idle=${idle} scene=${scene}`,
     );
     return;
   }
@@ -326,10 +386,13 @@ function publishLocal(
     ty,
     f: facing,
     i: idle,
+    s: scene,
   };
   positionsSub.publish(payload).then(
     () => {
-      console.log(`${LOG} publish ok tx=${tx} ty=${ty} idle=${idle}`);
+      console.log(
+        `${LOG} publish ok tx=${tx} ty=${ty} idle=${idle} scene=${scene}`,
+      );
     },
     (err) => {
       console.warn(`${LOG} publish failed`, err);
@@ -346,6 +409,7 @@ function stop(): void {
   self = null;
   activeSlug = null;
   lastSent = null;
+  localScene = SCENE_OVERWORLD;
   remotes.clear();
   if (staleTimer !== null) {
     window.clearInterval(staleTimer);

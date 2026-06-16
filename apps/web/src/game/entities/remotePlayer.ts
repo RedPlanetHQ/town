@@ -9,7 +9,7 @@ import type { GameObj, KAPLAYCtx, TweenController } from "kaplay";
 
 import { TILE, MOVE_TIME, INK, hex } from "../config";
 import {
-  getRemotePlayers,
+  getRemotePlayersForScene,
   onRemotesChange,
   type RemotePlayer,
 } from "../realtime";
@@ -43,12 +43,19 @@ type ActiveRemote = {
 };
 
 export type AttachRemotePlayersOptions = {
+  // Scene id used to filter the global remote-player list down to the
+  // ones standing in the same scene as the local viewer. The overworld
+  // passes `"overworld"`; each interior passes
+  // `"interior:<BuildingKey>"`. Without this filter the overworld would
+  // render a visitor who's inside a building at the door tile (the
+  // heartbeat re-publishes the last known overworld position).
+  scene: string;
   onPositionsChanged?: () => void;
 };
 
 export function attachRemotePlayers(
   k: KAPLAYCtx,
-  opts: AttachRemotePlayersOptions = {},
+  opts: AttachRemotePlayersOptions,
 ): () => void {
   const active = new Map<string, ActiveRemote>();
 
@@ -135,7 +142,9 @@ export function attachRemotePlayers(
 
   function reconcile() {
     const current = new Map<string, RemotePlayer>();
-    for (const p of getRemotePlayers()) current.set(p.participantKey, p);
+    for (const p of getRemotePlayersForScene(opts.scene)) {
+      current.set(p.participantKey, p);
+    }
 
     for (const [key, entry] of active) {
       if (!current.has(key)) {
