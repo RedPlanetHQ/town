@@ -162,11 +162,14 @@ function rescatterDecor(plot: Plot, manifest: Manifest): Plot["decor"] {
 }
 
 function ensureHome(plot: Plot): PlotBuilding {
-  const home = plot.buildings.find((b) => baseKey(b.plotKey) === "home");
+  // The canonical home is always the building with id "home" — see
+  // validatePlot, which enforces exactly one such building. Roads
+  // route from this one anchor.
+  const home = plot.buildings.find((b) => b.id === "home");
   if (!home) {
     throw new IncrementalError(
       "missing-home",
-      "plot has no HOME building — every plot must keep its home",
+      `plot has no building with id "home" — every plot must keep one`,
     );
   }
   return home;
@@ -294,13 +297,13 @@ export function removeBuilding(
       `no building with id "${input.id}" in plot`,
     );
   }
-  // Two protections: the canonical home id ("home") is required for the
-  // system Founder + workspace-name override, and the home plotKey
-  // (catalog "home"/"home-2"/…) is the spawn anchor.
-  if (target.id === "home" || baseKey(target.plotKey) === "home") {
+  // The canonical home is identified by id "home" (not by plotKey).
+  // The system Founder, the spawn anchor, and the workspace-name
+  // override all key off this one building.
+  if (target.id === "home") {
     throw new IncrementalError(
       "remove-home-forbidden",
-      "cannot remove the HOME building",
+      `cannot remove the building with id "home"`,
     );
   }
   const buildings = plot.buildings.filter((b) => b.id !== input.id);
