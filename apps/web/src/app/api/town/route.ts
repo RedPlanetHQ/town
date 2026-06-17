@@ -49,6 +49,9 @@ const BuildingSchema = z.object({
   variantId: z.string().min(1).optional(),
   // Optional sign text. Empty string clears any existing label.
   label: z.string().optional(),
+  // Per-house group-chat opt-in. Absent = "no change" (preserve current
+  // value); explicit true/false = patch. Mirrors PlotBuilding's flag.
+  groupChatEnabled: z.boolean().optional(),
 });
 
 const CustomNpcPositionSchema = z.object({

@@ -188,6 +188,8 @@ export interface AddBuildingInput {
   variantId?: string;
   /** Optional sign text. Renderer falls back to `id.toUpperCase()`. */
   label?: string;
+  /** Per-house group-chat opt-in. See PlotBuilding.groupChatEnabled. */
+  groupChatEnabled?: boolean;
 }
 
 export interface AddBuildingResult {
@@ -247,6 +249,9 @@ export function addBuilding(
     exteriorSprite,
     ...(dims ? { spriteW: dims.tileW, spriteH: dims.tileH } : {}),
     ...(input.label ? { label: input.label } : {}),
+    ...(input.groupChatEnabled
+      ? { groupChatEnabled: true }
+      : {}),
   };
 
   const home = ensureHome(plot);
@@ -384,6 +389,9 @@ export interface BuildingSpec {
   /** Optional sign text. When changed without changing plotKey we patch
    *  the existing PlotBuilding in place — no layout churn. */
   label?: string;
+  /** Per-house group-chat opt-in. Patched in place like `label` when
+   *  changed alone; no layout churn. */
+  groupChatEnabled?: boolean;
 }
 
 export interface BuildingDiff {
@@ -391,6 +399,8 @@ export interface BuildingDiff {
   removed: string[];
   changedVariant: Array<{ id: string; variantId: string }>;
   changedLabel: Array<{ id: string; label: string | undefined }>;
+  /** Patched in place when only the flag changed — same path as label. */
+  changedGroupChat: Array<{ id: string; enabled: boolean }>;
   /** Any spec that names an existing id with a DIFFERENT plotKey. We
    *  treat these as remove-then-add. */
   rebuild: BuildingSpec[];
@@ -406,6 +416,7 @@ export function diffBuildings(plot: Plot, incoming: BuildingSpec[]): BuildingDif
   const removed: string[] = [];
   const changedVariant: Array<{ id: string; variantId: string }> = [];
   const changedLabel: Array<{ id: string; label: string | undefined }> = [];
+  const changedGroupChat: Array<{ id: string; enabled: boolean }> = [];
   const rebuild: BuildingSpec[] = [];
 
   for (const [id, spec] of next.entries()) {
@@ -426,12 +437,27 @@ export function diffBuildings(plot: Plot, incoming: BuildingSpec[]): BuildingDif
     if (spec.label !== undefined && spec.label !== have.label) {
       changedLabel.push({ id, label: spec.label || undefined });
     }
+    // Same "absent = no override, explicit = patch" rule as label.
+    // Coerce both sides to bool so `undefined` and `false` compare equal
+    // — we don't want a missing flag to look like a clear-to-false op.
+    const wantOn = spec.groupChatEnabled === true;
+    const haveOn = have.groupChatEnabled === true;
+    if (spec.groupChatEnabled !== undefined && wantOn !== haveOn) {
+      changedGroupChat.push({ id, enabled: wantOn });
+    }
   }
   for (const id of current.keys()) {
     if (!next.has(id)) removed.push(id);
   }
 
-  return { added, removed, changedVariant, changedLabel, rebuild };
+  return {
+    added,
+    removed,
+    changedVariant,
+    changedLabel,
+    changedGroupChat,
+    rebuild,
+  };
 }
 
 /** Apply a BuildingDiff to a Plot, calling the right incremental op per
@@ -460,6 +486,19 @@ export function applyBuildingDiff(
           ? { ...b, label: ch.label }
           : (() => {
               const { label: _drop, ...rest } = b;
+              return rest as typeof b;
+            })()
+        : b,
+    );
+    next = { ...next, buildings };
+  }
+  for (const ch of diff.changedGroupChat) {
+    const buildings = next.buildings.map((b) =>
+      b.id === ch.id
+        ? ch.enabled
+          ? { ...b, groupChatEnabled: true }
+          : (() => {
+              const { groupChatEnabled: _drop, ...rest } = b;
               return rest as typeof b;
             })()
         : b,

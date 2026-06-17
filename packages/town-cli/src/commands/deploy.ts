@@ -38,6 +38,7 @@ interface PostBody {
     plotKey: string;
     variantId?: string;
     label?: string;
+    groupChatEnabled?: boolean;
   }>;
   customPlots: CustomPlotDTO[];
   npcs: Array<{
@@ -229,6 +230,9 @@ async function runDeploy(opts: { dir?: string }): Promise<void> {
       plotKey: b.plotKey,
       ...(b.variantId ? { variantId: b.variantId } : {}),
       ...(b.label !== undefined ? { label: b.label } : {}),
+      ...(b.groupChatEnabled !== undefined
+        ? { groupChatEnabled: b.groupChatEnabled }
+        : {}),
     })),
     customPlots: mergedCustomPlots,
     npcs,

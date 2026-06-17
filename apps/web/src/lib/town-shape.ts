@@ -25,6 +25,9 @@ export interface TownShapeBuilding {
   variantId?: string;
   /** Optional sign text. Renderer falls back to `id.toUpperCase()`. */
   label?: string;
+  /** Per-house group-chat opt-in. See PlotBuilding.groupChatEnabled —
+   *  CLI ↔ server round-trip this so `town deploy` can flip it. */
+  groupChatEnabled?: boolean;
 }
 
 export interface TownShape {
@@ -42,6 +45,7 @@ export function projectTownShape(plot: Plot): TownShape {
       plotKey: b.plotKey,
       variantId: b.variantId,
       ...(b.label ? { label: b.label } : {}),
+      ...(b.groupChatEnabled ? { groupChatEnabled: true } : {}),
     })),
     customPlots: plot.customPlots ?? [],
   };
@@ -134,6 +138,9 @@ async function applyDiff(
     plotKey: b.plotKey,
     ...(b.variantId ? { variantId: b.variantId } : {}),
     ...(b.label !== undefined ? { label: b.label } : {}),
+    ...(b.groupChatEnabled !== undefined
+      ? { groupChatEnabled: b.groupChatEnabled }
+      : {}),
   }));
   const diff = diffBuildings(startingPlot, specs);
   let nextPlot: Plot;

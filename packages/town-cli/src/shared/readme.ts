@@ -27,14 +27,19 @@ underlying tile-level layout (paths, ponds, decor).
 
 - \`town.json\` — high-level shape of your town. Two fields:
   - \`buildings\` — every building's id, plotKey, (optional) variantId,
-    and (optional) label. The \`id\` is your internal handle (referenced
-    by NPC MDX files and customPlots). \`plotKey\` is either a catalog
-    entry (e.g. "home", "cafe", "office-2") or "custom:<id>" — a
-    reference to one of your customPlots below.
+    (optional) label, and (optional) groupChatEnabled. The \`id\` is your
+    internal handle (referenced by NPC MDX files and customPlots).
+    \`plotKey\` is either a catalog entry (e.g. "home", "cafe",
+    "office-2") or "custom:<id>" — a reference to one of your customPlots
+    below.
     The overworld sign reads \`label\` when present, otherwise
     \`id.toUpperCase()\` — so \`{ id: "cake", plotKey: "store" }\` shows
     "CAKE", and \`{ id: "cafe", plotKey: "cafe", label: "Sunny's Café" }\`
     shows "SUNNY'S CAFÉ".
+    Set \`"groupChatEnabled": true\` on a building to give its interior a
+    multi-party room chat: anyone inside the house (humans + NPCs) shares
+    a Twitch-style overlay opened with the \`G\` key. Absent / false →
+    no group chat for that house.
   - \`customPlots\` — leave empty here and add full definitions under
     \`customPlots/<id>/plot.json\` instead. The deploy step inlines them.
 - \`customPlots/<id>/plot.json\` — one user-defined plot per directory.
@@ -54,6 +59,8 @@ underlying tile-level layout (paths, ponds, decor).
 - Add a building → append \`{ id, plotKey }\` to \`town.json#buildings\`.
 - Remove a building → delete its entry.
 - Swap a variant → set \`variantId\` on the entry.
+- Turn on the in-house group chat → add \`"groupChatEnabled": true\` to
+  the building.
 - Add a brand-new plot type → drop a folder under \`customPlots/\` and
   reference it from \`town.json\` as \`plotKey: "custom:<id>"\`.
 

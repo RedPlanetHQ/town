@@ -15,6 +15,11 @@ export interface TownBuilding {
    *  `id.toUpperCase()` — set this when you want a different casing,
    *  spaces, or punctuation. */
   label?: string;
+  /** Turn the per-house group chat on for this building. When true the
+   *  interior shows a `[G] Group chat` prompt and players inside the
+   *  same house share a multi-party chat with the resident NPCs.
+   *  Absent / false → group chat is off for this house. */
+  groupChatEnabled?: boolean;
 }
 
 export interface CustomNpcPositionDTO {
