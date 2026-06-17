@@ -15,16 +15,49 @@ import { baseKey } from "./world";
 
 /** Catalog-shape projection of a CustomPlot variant so callers can treat
  *  catalog + custom uniformly. Only the fields plot-gen consumes. */
+export interface EffectiveNpcSlot {
+  id: string;
+  tx: number;
+  ty: number;
+  label: string;
+}
+
 export interface EffectiveVariant {
   id: string;
   exteriorSpriteCandidates: string[];
-  npcPosition: { tx: number; ty: number; label: string };
+  /** Every NPC slot the variant supports, in canonical order. The CLI
+   *  binds an MDX file's `slotId` to the matching entry's `id`. */
+  npcSlots: EffectiveNpcSlot[];
 }
 
 export interface EffectivePlot {
   id: string;
   category: Category;
   variants: EffectiveVariant[];
+}
+
+function projectSlots(
+  positions: Array<{ id?: string; tx: number; ty: number; label: string }> | undefined,
+  fallback: { tx: number; ty: number; label: string } | undefined,
+): EffectiveNpcSlot[] {
+  // `npcPositions` is the source of truth when present. Otherwise fall
+  // back to the legacy single-position field, treating it as slot "".
+  // Validation (`@town/plot`) guarantees at least one source.
+  const source = positions && positions.length > 0
+    ? positions
+    : fallback
+      ? [{ ...fallback }]
+      : [];
+  const seen = new Set<string>();
+  const out: EffectiveNpcSlot[] = [];
+  for (const pos of source) {
+    let id = pos.id ?? "";
+    // Dedupe — keep the first slot for any colliding id.
+    while (seen.has(id)) id += "_";
+    seen.add(id);
+    out.push({ id, tx: pos.tx, ty: pos.ty, label: pos.label });
+  }
+  return out;
 }
 
 /** Resolve a plotKey to its effective plot definition. Returns null if
@@ -44,7 +77,7 @@ export function resolveEffectivePlot(
       variants: cp.variants.map((v) => ({
         id: v.id,
         exteriorSpriteCandidates: v.exteriorSpriteCandidates,
-        npcPosition: v.npcPosition,
+        npcSlots: projectSlots(v.npcPositions, v.npcPosition),
       })),
     };
   }
@@ -56,7 +89,7 @@ export function resolveEffectivePlot(
     variants: cp.variants.map((v) => ({
       id: v.id,
       exteriorSpriteCandidates: v.exteriorSpriteCandidates,
-      npcPosition: v.npcPosition,
+      npcSlots: projectSlots(v.npcPositions, v.npcPosition),
     })),
   };
 }

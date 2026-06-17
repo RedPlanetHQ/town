@@ -118,19 +118,33 @@ export function generatePlot(input: GenerateInput): Plot {
     pondTiles,
   });
 
-  // 5. NPCs — one per building, from the catalog variant's npcPosition.
-  //    Position is INSIDE the interior; the overworld renderer ignores
-  //    these (only used when entering the building scene).
-  const npcs = buildings.map((b) => {
+  // 5. NPCs — one entry per slot the variant declares. Variants that
+  //    only ship a singular `npcPosition` resolve to a single slot ""
+  //    (the implicit default). Positions are INSIDE the interior — the
+  //    overworld renderer ignores them, the interior scene reads them.
+  const npcs = buildings.flatMap((b) => {
     const variant = input.catalog.plots
       .find((p) => p.id === baseKey(b.plotKey))
-      ?.variants.find((v) => v.id === b.variantId);
-    return {
+      ?.variants.find((v: Variant) => v.id === b.variantId);
+    const slots = variant?.npcPositions ?? (variant?.npcPosition ? [variant.npcPosition] : []);
+    if (slots.length === 0) {
+      return [
+        {
+          buildingId: b.id,
+          slotId: "",
+          tx: 0,
+          ty: 0,
+          label: "occupant",
+        },
+      ];
+    }
+    return slots.map((slot) => ({
       buildingId: b.id,
-      tx: variant?.npcPosition.tx ?? 0,
-      ty: variant?.npcPosition.ty ?? 0,
-      label: variant?.npcPosition.label ?? "occupant",
-    };
+      slotId: slot.id ?? "",
+      tx: slot.tx,
+      ty: slot.ty,
+      label: slot.label,
+    }));
   });
 
   return {

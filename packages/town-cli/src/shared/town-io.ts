@@ -13,10 +13,25 @@ export interface TownBuilding {
   variantId?: string;
 }
 
+export interface CustomNpcPositionDTO {
+  /** Stable slot id within the variant. Empty string is the implicit
+   *  first slot — what an MDX without a `slotId` frontmatter binds to. */
+  id?: string;
+  tx: number;
+  ty: number;
+  label: string;
+}
+
 export interface CustomVariantDTO {
   id: string;
   exteriorSpriteCandidates: string[];
-  npcPosition: { tx: number; ty: number; label: string };
+  /** Legacy single-position slot. Optional — variants that ship
+   *  `npcPositions` can omit it. At least one of the two is required. */
+  npcPosition?: CustomNpcPositionDTO;
+  /** Every NPC slot the variant supports. The CLI binds each
+   *  `npcs/<buildingId>__<slotId>.mdx` to the entry with the matching
+   *  `id`. Slot ids must be unique within the variant. */
+  npcPositions?: CustomNpcPositionDTO[];
 }
 
 export interface CustomPlotDTO {
@@ -41,6 +56,9 @@ export interface TownJson {
 export interface NpcDTO {
   id?: string;
   buildingId: string;
+  /** Slot within the building. Empty string is the implicit first slot
+   *  — what an MDX without a `slotId` frontmatter binds to. */
+  slotId: string;
   name: string;
   description: string;
   prompt: string;
@@ -68,6 +86,17 @@ export async function writeTownJson(dir: string, town: TownJson): Promise<void> 
   await writeJson(join(dir, "town.json"), town);
 }
 
+/** Parse a slotId hint from an MDX filename. We use the convention
+ *  `<buildingId>__<slotId>.mdx` so the file listing is meaningful when
+ *  you have two NPCs in the same building. Frontmatter wins if both are
+ *  set; a missing slot resolves to "" (the implicit first slot). */
+function slotIdFromFilename(file: string): { buildingId: string; slotId: string } {
+  const base = file.replace(/\.(md|mdx)$/i, "");
+  const idx = base.indexOf("__");
+  if (idx === -1) return { buildingId: base, slotId: "" };
+  return { buildingId: base.slice(0, idx), slotId: base.slice(idx + 2) };
+}
+
 export async function readNpcsDir(dir: string): Promise<NpcDTO[]> {
   const npcDir = join(dir, "npcs");
   if (!existsSync(npcDir)) return [];
@@ -80,8 +109,11 @@ export async function readNpcsDir(dir: string): Promise<NpcDTO[]> {
     const raw = await readFile(join(npcDir, file), "utf8");
     const parsed = matter(raw);
     const data = parsed.data as Record<string, unknown>;
+    const fromFilename = slotIdFromFilename(file);
     const buildingId =
-      typeof data.buildingId === "string" ? data.buildingId : "";
+      typeof data.buildingId === "string" ? data.buildingId : fromFilename.buildingId;
+    const slotId =
+      typeof data.slotId === "string" ? data.slotId : fromFilename.slotId;
     const name = typeof data.name === "string" ? data.name : "";
     const description =
       typeof data.description === "string" ? data.description : "";
@@ -95,6 +127,7 @@ export async function readNpcsDir(dir: string): Promise<NpcDTO[]> {
     out.push({
       ...(id ? { id } : {}),
       buildingId,
+      slotId,
       name,
       description,
       prompt: parsed.content.trim(),
@@ -109,10 +142,16 @@ export async function writeNpcMdx(
 ): Promise<void> {
   const npcDir = join(dir, "npcs");
   await mkdir(npcDir, { recursive: true });
-  const safe = npc.buildingId.replace(/[^a-z0-9_-]+/gi, "-");
+  const safeBuilding = npc.buildingId.replace(/[^a-z0-9_-]+/gi, "-");
+  // Filename convention: <buildingId>.mdx for the default first slot,
+  // <buildingId>__<slotId>.mdx for any other slot. Keeps the legacy
+  // shape on disk when no multi-slot variant is in play.
+  const slotSafe = (npc.slotId ?? "").replace(/[^a-z0-9_-]+/gi, "-");
+  const safe = slotSafe ? `${safeBuilding}__${slotSafe}` : safeBuilding;
   const body = matter.stringify(npc.prompt.trimEnd() + "\n", {
     id: npc.id,
     buildingId: npc.buildingId,
+    ...(npc.slotId ? { slotId: npc.slotId } : {}),
     name: npc.name,
     description: npc.description,
   });

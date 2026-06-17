@@ -10,7 +10,7 @@
 
 import { NextResponse } from "next/server";
 
-import { dmChannel, publish } from "@/lib/centrifugo";
+import { dmChannel, publish, userInboxChannel } from "@/lib/centrifugo";
 import {
   appendMessage,
   findOrCreateConversation,
@@ -106,17 +106,40 @@ export async function POST(req: Request, ctx: { params: Promise<Params> }) {
     text,
   });
 
-  // Live fan-out so the other participant's open panel updates without a
-  // refresh. We publish the same envelope they'd get from a GET reload.
-  await publish(
-    dmChannel(slug, viewer.participantKey, otherKey),
-    {
-      id: msg.id,
+  // Two-channel fan-out:
+  //   1. dm:<...>  — the per-conversation channel the open DM panel
+  //      subscribes to. Receives the full message body so the panel can
+  //      append it without a re-fetch.
+  //   2. user:<otherKey> — the recipient's persistent inbox channel,
+  //      subscribed once on game boot. Receives a tiny envelope used to
+  //      ding the notification sound + flip the pending dot, regardless
+  //      of which (or whether any) DM panel is currently open.
+  // Sender doesn't get an inbox publication — they sent it.
+  await Promise.all([
+    publish(
+      dmChannel(slug, viewer.participantKey, otherKey),
+      {
+        id: msg.id,
+        fromKey: msg.fromKey,
+        text: msg.text,
+        createdAt: msg.createdAt.toISOString(),
+      },
+    ),
+    publish(userInboxChannel(otherKey), {
+      type: "dm",
+      messageId: msg.id,
+      conversationId: conv.id,
       fromKey: msg.fromKey,
-      text: msg.text,
+      // Sender's display name as resolved server-side. Lets the
+      // OS notification render "Harshith: hey…" without a name lookup
+      // on the receiver — the sender may not be a visible remote at
+      // all (e.g. just walked off-screen).
+      fromName: viewer.displayName,
+      townSlug: slug,
+      preview: msg.text.slice(0, 120),
       createdAt: msg.createdAt.toISOString(),
-    },
-  );
+    }),
+  ]);
 
   return NextResponse.json({
     message: {

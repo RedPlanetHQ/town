@@ -22,6 +22,8 @@ import { parseVisitorCookie, visitorCookieName } from "@/lib/town-code";
 
 const NpcUpsertSchema = z.object({
   buildingId: z.string().min(1),
+  // Slot within the building. Empty string is the implicit first slot.
+  slotId: z.string().default(""),
   name: z.string().min(1),
   description: z.string(),
   prompt: z.string(),
@@ -66,6 +68,7 @@ export async function GET(req: Request) {
       npcs: rows.map((r) => ({
         id: r.id,
         buildingId: r.buildingId,
+        slotId: r.slotId,
         name: r.name,
         description: r.description,
         prompt: r.prompt,
@@ -80,12 +83,13 @@ export async function GET(req: Request) {
   await ensureNpcsForUser(resolved.user.id);
   const rows = await prisma.npc.findMany({
     where: { userId: resolved.user.id },
-    orderBy: { buildingId: "asc" },
+    orderBy: [{ buildingId: "asc" }, { slotId: "asc" }],
   });
   return NextResponse.json({
     npcs: rows.map((r) => ({
       id: r.id,
       buildingId: r.buildingId,
+      slotId: r.slotId,
       name: r.name,
       description: r.description,
       prompt: r.prompt,
@@ -120,6 +124,7 @@ export async function POST(req: Request) {
         ...(n.id ? { id: n.id } : {}),
         userId,
         buildingId: n.buildingId,
+        slotId: n.slotId,
         name: n.name,
         description: n.description,
         prompt: n.prompt,

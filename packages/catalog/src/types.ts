@@ -44,8 +44,15 @@ export interface Interior {
   props: InteriorProp[];
 }
 
-/** Where the variant's NPC spawns inside the shared interior. */
+/** Where one NPC spawns inside the shared interior. A variant declares
+ *  every slot the building supports; the user's roster binds an NPC to
+ *  each slot by id (or to the first slot when no id is set). */
 export interface NpcPosition extends TilePos {
+  /** Stable slot id within the variant. Optional only for back-compat
+   *  with the historical single-slot shape — newer variants set it
+   *  explicitly (e.g. "barista", "regular"). Slot "" is the implicit
+   *  default and matches a CLI MDX without a `slotId` frontmatter. */
+  id?: string;
   /** Short descriptive label (e.g. "barista", "warden") — also used as
    *  the default friendly name when no MDX overrides it. */
   label: string;
@@ -63,7 +70,13 @@ export interface Variant {
   exteriorSpriteCandidates: string[];
   anchorObjects?: string[];
   triggers?: string[];
-  npcPosition: NpcPosition;
+  /** Legacy single-position slot. Optional now — variants that ship
+   *  `npcPositions` can omit it. Readers fall back to `npcPositions[0]`
+   *  when absent. At least one of the two must be present. */
+  npcPosition?: NpcPosition;
+  /** Every NPC slot the variant supports. When absent, readers treat
+   *  the variant as having a single slot `[npcPosition]`. */
+  npcPositions?: NpcPosition[];
 }
 
 /** A plot is a slot on the town map. All variants share the interior. */

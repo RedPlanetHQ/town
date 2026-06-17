@@ -109,6 +109,31 @@ function validateCustomPlot(
       const issue = validateSpriteRef(ref, `${vprefix}.exteriorSpriteCandidates[${j}]`);
       if (issue) issues.push(issue);
     }
+    // A variant must declare at least one NPC slot — via either the
+    // legacy singular `npcPosition` or the new `npcPositions` array.
+    const hasSingular = Boolean(v.npcPosition);
+    const hasArray = Array.isArray(v.npcPositions) && v.npcPositions.length > 0;
+    if (!hasSingular && !hasArray) {
+      issues.push({
+        path: `${vprefix}`,
+        message: `at least one of \`npcPosition\` or \`npcPositions\` is required`,
+      });
+    }
+    // Slot ids must be unique within a variant. The empty string is a
+    // valid slot — it's the default that one-slot variants resolve to.
+    if (Array.isArray(v.npcPositions)) {
+      const slotIds = new Set<string>();
+      for (const [j, pos] of v.npcPositions.entries()) {
+        const sid = pos.id ?? "";
+        if (slotIds.has(sid)) {
+          issues.push({
+            path: `${vprefix}.npcPositions[${j}].id`,
+            message: `duplicate slot id "${sid}"`,
+          });
+        }
+        slotIds.add(sid);
+      }
+    }
   }
 }
 
@@ -206,11 +231,22 @@ export function validatePlot(plot: Plot, manifest: Manifest): ValidationResult {
     }
   }
 
-  // NPCs reference real buildings.
+  // NPCs reference real buildings. Each (buildingId, slotId) pair must
+  // be unique — the renderer matches each plot.npcs entry to one Npc
+  // row by that key, and a duplicate would silently collapse both.
+  const npcSlotKeys = new Set<string>();
   for (const [i, n] of plot.npcs.entries()) {
     if (!buildingIds.has(n.buildingId)) {
       issues.push({ path: `npcs[${i}].buildingId`, message: `unknown buildingId "${n.buildingId}"` });
     }
+    const slotKey = `${n.buildingId}::${n.slotId ?? ""}`;
+    if (npcSlotKeys.has(slotKey)) {
+      issues.push({
+        path: `npcs[${i}]`,
+        message: `duplicate slot "${n.slotId ?? ""}" on building "${n.buildingId}"`,
+      });
+    }
+    npcSlotKeys.add(slotKey);
   }
 
   return { ok: issues.length === 0, issues };

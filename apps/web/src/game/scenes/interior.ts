@@ -5,7 +5,7 @@ import { makePlayer } from "../entities/player";
 import { attachRemotePlayers } from "../entities/remotePlayer";
 import { getSession, logout, startLogin } from "../auth";
 import { GUEST_CTA_KEY, openGuestCta } from "../guestCta";
-import { getNpcByBuildingId } from "../npcs";
+import { getNpcByBuildingAndSlot } from "../npcs";
 import { publishLocalPosition, setLocalScene } from "../realtime";
 import { ui } from "../../ui/store";
 import {
@@ -818,76 +818,97 @@ export function registerInteriorScene(k: KAPLAYCtx) {
   k.scene("interior", (opts: InteriorOpts) => {
     const baseSpec = INTERIORS[opts.building];
 
-    // Plot-driven NPC for THIS building. plot.npcs[] holds the interior
-    // slot (tx, ty) per buildingId; the Npc DB row (fetched separately
-    // by startNpcsSync) holds chat data (name, description, prompt).
+    // Plot-driven NPCs for THIS building. plot.npcs[] now ships one
+    // entry per variant slot (see @town/catalog `Variant.npcPositions`),
+    // so a building can host multiple NPCs at distinct tiles. Each plot
+    // entry is matched to a row in the Npc DB table by (buildingId,
+    // slotId); chat data lives there.
     //
     // Render rules:
     //   • Owner / visitor — render iff BOTH the plot slot AND a matching
     //     Npc DB row exist. So `town deploy` of an MDX without an entry
-    //     for this buildingId removes the sprite + interactable cleanly,
-    //     and a chat round-trip can never 404.
+    //     for this (buildingId, slotId) removes the sprite + interactable
+    //     cleanly, and a chat round-trip can never 404.
     //   • Unauthenticated demo (no session AND no town slug) — the API
     //     is 401 so the DB roster is always empty. To keep the marketing
-    //     demo populated, render from the plot slot alone using a
-    //     per-category fallback name. openNpcGreeting gates the actual
-    //     chat behind a "Sign in with CORE" CTA on this branch, so the
-    //     fallback id never reaches /api/npc-chat.
+    //     demo populated, render every plot slot from a per-category
+    //     fallback name. openNpcGreeting gates the actual chat behind a
+    //     "Sign in with CORE" CTA on this branch, so the fallback id
+    //     never reaches /api/npc-chat.
     const plot = getCachedPlot();
-    const plotNpc = plot?.npcs.find((n) => n.buildingId === opts.buildingId);
-    const npcRow = plotNpc ? getNpcByBuildingId(opts.buildingId) : null;
+    const plotNpcs = (plot?.npcs ?? []).filter(
+      (n) => n.buildingId === opts.buildingId,
+    );
     const isDemoGuest = !getSession() && !getViewerTownSlug();
     const fallback = DEMO_NPC_FALLBACK[opts.building];
-    // HOME's NPC is the world runner — gets named after the resident's
+    // HOME's first slot is the world runner — named after the resident's
     // CORE workspace ("Hudson's town" → NPC introduces themselves as
-    // Hudson). Override the DB / fallback name, but only when the
-    // workspace cache has actually loaded with a non-empty name; the
-    // chat prompt + description still come from the DB row so the
-    // butler's voice is editable via the CLI.
+    // Hudson). We only apply the override on the default slot ("") so
+    // additional HOME-slot NPCs keep their authored names.
     const homeWorkspaceName =
       opts.building === "HOME"
         ? getWorkspace()?.name?.trim() || null
         : null;
-    const npcInfo =
-      plotNpc && npcRow
-        ? {
-            id: npcRow.id,
-            name: homeWorkspaceName ?? npcRow.name,
-            description: npcRow.description,
-          }
-        : plotNpc && isDemoGuest
-          ? {
-              id: opts.buildingId,
-              name: homeWorkspaceName ?? fallback.name,
-              description: fallback.description,
-            }
-          : null;
-    const dynamicNpc: Npc | null =
-      plotNpc && npcInfo
-        ? {
-            tx: plotNpc.tx,
-            ty: plotNpc.ty,
-            sprite: DEFAULT_NPC_SPRITE[opts.building],
-          }
-        : null;
-    const dynamicInteract: Interactable | null =
-      plotNpc && npcInfo
-        ? {
-            tx: plotNpc.tx,
-            ty: plotNpc.ty,
-            key: `npc-${opts.buildingId}`,
-            label: `Talk to ${npcInfo.name}`,
+
+    interface Resolved {
+      plotNpc: (typeof plotNpcs)[number];
+      info: { id: string; name: string; description: string };
+    }
+    const resolved: Resolved[] = [];
+    for (const plotNpc of plotNpcs) {
+      const slotId = plotNpc.slotId ?? "";
+      const row = getNpcByBuildingAndSlot(opts.buildingId, slotId);
+      const isDefaultSlot = slotId === "";
+      const workspaceOverride = isDefaultSlot ? homeWorkspaceName : null;
+      if (row) {
+        resolved.push({
+          plotNpc,
+          info: {
+            id: row.id,
+            name: workspaceOverride ?? row.name,
+            description: row.description,
+          },
+        });
+        continue;
+      }
+      if (isDemoGuest && isDefaultSlot) {
+        resolved.push({
+          plotNpc,
+          info: {
+            id: opts.buildingId,
+            name: workspaceOverride ?? fallback.name,
+            description: fallback.description,
+          },
+        });
+      }
+    }
+
+    const dynamicNpcs: Npc[] = resolved.map(({ plotNpc }) => ({
+      tx: plotNpc.tx,
+      ty: plotNpc.ty,
+      sprite: DEFAULT_NPC_SPRITE[opts.building],
+    }));
+    const dynamicInteracts: Interactable[] = resolved.map(({ plotNpc, info }) => {
+      const slotId = plotNpc.slotId ?? "";
+      const interactKey = slotId
+        ? `npc-${opts.buildingId}-${slotId}`
+        : `npc-${opts.buildingId}`;
+      return {
+        tx: plotNpc.tx,
+        ty: plotNpc.ty,
+        key: interactKey,
+        label: `Talk to ${info.name}`,
+        accent: theme.buildings[opts.building].accent,
+        onTrigger: () =>
+          openNpcGreeting({
+            npcId: info.id,
+            name: info.name,
+            description: info.description,
             accent: theme.buildings[opts.building].accent,
-            onTrigger: () =>
-              openNpcGreeting({
-                npcId: npcInfo.id,
-                name: npcInfo.name,
-                description: npcInfo.description,
-                accent: theme.buildings[opts.building].accent,
-              }),
-            onLeave: () => ui.closeDialogue(),
-          }
-        : null;
+          }),
+        onLeave: () => ui.closeDialogue(),
+      };
+    });
 
     // Drop owner-only sprites + interacts when a visitor is touring
     // another user's town. System NPCs (Founder) currently use this.
@@ -903,10 +924,8 @@ export function registerInteriorScene(k: KAPLAYCtx) {
 
     const spec = {
       ...baseSpec,
-      npcs: dynamicNpc ? [...visibleNpcs, dynamicNpc] : visibleNpcs,
-      interacts: dynamicInteract
-        ? [...visibleInteracts, dynamicInteract]
-        : visibleInteracts,
+      npcs: [...visibleNpcs, ...dynamicNpcs],
+      interacts: [...visibleInteracts, ...dynamicInteracts],
     };
 
     // Backdrop — single uniform dark color for every interior. We push the

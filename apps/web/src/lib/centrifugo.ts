@@ -117,3 +117,12 @@ export function dmChannel(slug: string, a: string, b: string): string {
   // the form "user:<id>" or "guest:<id>".
   return `dm:${slug}-${lo.replace(/:/g, "_")}-${hi.replace(/:/g, "_")}`;
 }
+
+// Per-recipient "inbox" channel. One persistent subscription per browser
+// session that receives a tiny envelope every time the participant gets
+// a new DM, regardless of who the sender is or which conversations are
+// currently open. Lets the client play a notification sound and refresh
+// the pending-dot set without polling.
+export function userInboxChannel(participantKey: string): string {
+  return `user:${participantKey.replace(/:/g, "_")}`;
+}

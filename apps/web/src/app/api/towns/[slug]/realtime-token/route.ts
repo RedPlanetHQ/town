@@ -11,7 +11,12 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { mintConnectionToken, positionsChannel } from "@/lib/centrifugo";
+import {
+  mintConnectionToken,
+  mintSubscribeToken,
+  positionsChannel,
+  userInboxChannel,
+} from "@/lib/centrifugo";
 import { OWNER_DEFAULT_CHARACTER } from "@/lib/characters";
 import { prisma } from "@/lib/db";
 import {
@@ -65,14 +70,21 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
   }
 
   try {
-    const token = await mintConnectionToken({
-      sub: participantKey,
-      info: {
-        name: displayName,
-        character,
-        slug,
-      },
-    });
+    const inboxChannel = userInboxChannel(participantKey);
+    const [token, inboxToken] = await Promise.all([
+      mintConnectionToken({
+        sub: participantKey,
+        info: {
+          name: displayName,
+          character,
+          slug,
+        },
+      }),
+      mintSubscribeToken({
+        sub: participantKey,
+        channel: inboxChannel,
+      }),
+    ]);
     // Ship the public WebSocket URL alongside the token so the browser
     // doesn't depend on `NEXT_PUBLIC_*` (which would inline at build).
     // Server-side env vars resolve per request — set CENTRIFUGO_PUBLIC_URL
@@ -89,6 +101,8 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
       displayName,
       character,
       positionsChannel: positionsChannel(slug),
+      inboxChannel,
+      inboxToken,
     });
   } catch (e) {
     console.error("[realtime-token] failed to mint", e);

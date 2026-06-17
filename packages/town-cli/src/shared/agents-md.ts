@@ -22,8 +22,12 @@ underlying tile-level layout (paths, ponds, decor).
   point at existing catalog paths (e.g. "exteriors/home/villa-1.png") OR
   at sibling PNGs ("./exterior.png", "./props/lamp.png"). The CLI uploads
   the PNGs and rewrites refs to "sprite:<hash>" on deploy.
-- \`npcs/<buildingId>.mdx\` — one NPC per building. Frontmatter holds the
-  identity (name, description, buildingId); body is the system prompt.
+- \`npcs/<buildingId>.mdx\` — one NPC per slot in the building. Frontmatter
+  holds identity (name, description, buildingId); body is the system prompt.
+  For buildings whose variant declares multiple slots (see \`npcSlots\` in
+  \`catalog.json\`), use \`npcs/<buildingId>__<slotId>.mdx\` and add
+  \`slotId\` to the frontmatter so the renderer matches each MDX to the
+  right position inside the interior.
 - \`catalog.json\` — slim, read-only reference of what's available.
   Four fields:
   - \`plots\` — every catalog plot with its plotKey, label, category,

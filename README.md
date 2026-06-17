@@ -98,9 +98,32 @@ seeded.
 <details>
 <summary><strong>Add or edit an NPC</strong></summary>
 
-Every building gets one NPC. NPCs live in `<slug>/npcs/<buildingId>.mdx`
-— filename matches the `id` you used in `town.json#buildings`. To add a
-new NPC, first add the building, then drop the matching MDX:
+NPCs live in `<slug>/npcs/`. A building can host one NPC per **slot** —
+the variant declares each slot inside `catalog.json`. The default first
+slot is `""` and binds to a plain `<buildingId>.mdx`; named slots use
+`<buildingId>__<slotId>.mdx`.
+
+**Find the slots a building supports.** Open `catalog.json`, find the
+plot's variant, and read `npcSlots`:
+
+```jsonc
+{
+  "plotKey": "home",
+  "variants": [{
+    "id": "home.modern-villa",
+    "npcSlots": [
+      { "id": "",         "tx": 8, "ty": 3, "label": "warden" },
+      { "id": "roommate", "tx": 4, "ty": 5, "label": "roommate" }
+    ]
+  }]
+}
+```
+
+That variant has two slots; you can author up to two NPCs at this
+building. The empty-string slot is the default; the others are named.
+
+**Single-slot building.** Filename matches the building id; no `slotId`
+needed:
 
 ```mdx
 ---
@@ -115,9 +138,38 @@ activity when context is provided. Stay in character, never break the
 fourth wall, and keep replies under three sentences.
 ```
 
-The frontmatter is identity — `name` is the speaker line, `description`
-is the flavor text that hovers as someone approaches. The body is the
-system prompt the LLM sees on every turn.
+**Add an NPC to a specific slot.** Filename is `<buildingId>__<slotId>.mdx`
+and the frontmatter pins `slotId`:
+
+```mdx
+---
+buildingId: home
+slotId: roommate
+name: Linnea
+description: Your roommate at home. Always halfway through a novel.
+---
+
+You are the roommate at home. Greet the player like family — warm but
+unfussy. Bring up books when natural, never lecture. Stay in character;
+keep replies under three sentences.
+```
+
+If the variant doesn't list the slot id you're trying to use, the
+server has nowhere to render it. For a fully custom layout — your own
+exterior, interior, and multiple NPC positions — declare the slots in
+a `customPlots/<id>/plot.json` (see *Bring your own building* below)
+and reference the new `plotKey: "custom:<id>"` from `town.json`.
+
+**Change an NPC's prompt or identity.** Open the `.mdx` and edit:
+
+- The **body** is the system prompt the LLM reads on every turn — this
+  is where voice and behavior live.
+- `name` is the speaker line on the chat bubble.
+- `description` is the flavor text shown when the player walks up.
+
+Then run `town deploy` from the slug folder. The server replaces the
+entire NPC roster atomically — no half-deployed state, no orphan rows
+left behind from deleted buildings.
 
 **Prompt conventions that age well**
 
@@ -130,9 +182,6 @@ system prompt the LLM sees on every turn.
 - Cap length: *"keep replies under three sentences"*. Without this the
   model drifts long and the chat bubble runs off the screen.
 - Lock the frame: *"stay in character, never break the fourth wall"*.
-
-Re-running `town deploy` replaces the entire NPC roster atomically — no
-half-deployed state, no orphan NPCs from deleted buildings.
 
 </details>
 
@@ -204,11 +253,20 @@ Open `catalog.json` in your folder — `exteriorSprites`, `interiorSprites`,
     {
       "id": "record-store.classic",
       "exteriorSpriteCandidates": ["./exterior.png"],
-      "npcPosition": { "tx": 5, "ty": 4, "label": "shopkeep" }
+      "npcPositions": [
+        { "id": "",        "tx": 5, "ty": 4, "label": "shopkeep" },
+        { "id": "regular", "tx": 7, "ty": 6, "label": "regular" }
+      ]
     }
   ]
 }
 ```
+
+A variant must declare at least one slot via either `npcPosition`
+(legacy singular) or `npcPositions` (multi-slot array). The example
+above uses `npcPositions`, so authoring two MDX files — `record-store.mdx`
+for the empty-string slot and `record-store__regular.mdx` for the named
+one — gives your record store both a shopkeep and a regular.
 
 </details>
 

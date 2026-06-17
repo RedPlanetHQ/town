@@ -47,6 +47,7 @@ export function projectTownShape(plot: Plot): TownShape {
 export interface TownNpcDTO {
   id: string;
   buildingId: string;
+  slotId: string;
   name: string;
   description: string;
   prompt: string;
@@ -55,11 +56,12 @@ export interface TownNpcDTO {
 export async function loadTownNpcs(userId: string): Promise<TownNpcDTO[]> {
   const rows = await prisma.npc.findMany({
     where: { userId },
-    orderBy: { buildingId: "asc" },
+    orderBy: [{ buildingId: "asc" }, { slotId: "asc" }],
   });
   return rows.map((r) => ({
     id: r.id,
     buildingId: r.buildingId,
+    slotId: r.slotId,
     name: r.name,
     description: r.description,
     prompt: r.prompt,

@@ -122,15 +122,10 @@ async function resolveNpc(
 ): Promise<NpcInfo | null> {
   // Only user-owned NPCs run through this route. System NPCs (Founder)
   // have their own endpoints with bespoke prompts + tools — callers
-  // must address them there.
-  // 1. User-owned Npc row by id (cuid).
-  let row = await prisma.npc.findFirst({ where: { id: npcId, userId } });
-  // 2. Fallback — treat the ref as a buildingId. Lets callers that only
-  //    know the building (e.g. interior.ts's openHomeChat) skip the
-  //    intermediate "look up my home NPC id" round-trip.
-  if (!row) {
-    row = await prisma.npc.findFirst({ where: { buildingId: npcId, userId } });
-  }
+  // must address them there. `npcId` is always the Npc row's cuid; the
+  // interior renderer resolves (buildingId, slotId) → cuid via the
+  // /api/npcs cache before calling here.
+  const row = await prisma.npc.findFirst({ where: { id: npcId, userId } });
   if (!row) return null;
   return {
     id: row.id,

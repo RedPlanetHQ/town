@@ -46,8 +46,12 @@ export interface CustomInterior {
   props: CustomInteriorProp[];
 }
 
-/** Where the variant's NPC spawns inside the shared interior. */
+/** One slot inside a CustomPlot variant. */
 export interface CustomNpcPosition extends TilePos {
+  /** Stable slot id. Optional for single-slot variants — the empty
+   *  string is the implicit default that the CLI binds to when an MDX
+   *  doesn't set `slotId`. */
+  id?: string;
   label: string;
 }
 
@@ -55,7 +59,12 @@ export interface CustomNpcPosition extends TilePos {
 export interface CustomVariant {
   id: string;
   exteriorSpriteCandidates: SpriteRef[];
-  npcPosition: CustomNpcPosition;
+  /** Legacy single-position slot. Optional — variants that ship
+   *  `npcPositions` can omit it. At least one of the two must exist. */
+  npcPosition?: CustomNpcPosition;
+  /** Every NPC slot the variant supports. When absent, readers treat
+   *  the variant as having a single slot `[npcPosition]`. */
+  npcPositions?: CustomNpcPosition[];
 }
 
 /** A user-defined plot. Mirrors `@town/catalog`'s `Plot` shape so the
@@ -113,6 +122,10 @@ export interface PlotDecor extends TilePos {
  *  on the overworld. */
 export interface PlotNpc extends TilePos {
   buildingId: string;     // PlotBuilding.id
+  /** Slot id within the variant's `npcPositions`. Empty string means
+   *  "the default first slot" — what one-slot variants resolve to and
+   *  what a CLI MDX without a `slotId` frontmatter binds to. */
+  slotId: string;
   label: string;
   /** Pointer to an MDX file (relative to the plot dir) that holds the
    *  default prompt, role, and ability declarations. Phase 3. */

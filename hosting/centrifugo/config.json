@@ -27,6 +27,13 @@
         "allow_publish_for_client": false,
         "history_size": 50,
         "history_ttl": "24h"
+      },
+      {
+        "name": "user",
+        "allow_subscribe_for_client": true,
+        "allow_publish_for_client": false,
+        "history_size": 20,
+        "history_ttl": "1h"
       }
     ]
   }

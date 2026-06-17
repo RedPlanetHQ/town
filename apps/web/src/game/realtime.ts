@@ -14,6 +14,9 @@
 
 import { Centrifuge, type PublicationContext, type SubscribedContext } from "centrifuge";
 
+import { armNotifications, showMessageNotification } from "./notify";
+import { playMessageDing } from "./sound";
+
 const LOG = "[realtime]";
 
 export type RemotePlayer = {
@@ -60,6 +63,7 @@ type Listener = () => void;
 
 let centrifuge: Centrifuge | null = null;
 let positionsSub: ReturnType<Centrifuge["newSubscription"]> | null = null;
+let inboxSub: ReturnType<Centrifuge["newSubscription"]> | null = null;
 let self: Pick<RemotePlayer, "participantKey" | "name" | "character"> | null = null;
 let activeSlug: string | null = null;
 // Latest position the scene asked us to publish. Cached so that if the
@@ -165,6 +169,15 @@ export function setPendingKeys(keys: string[]): void {
   for (const fn of pendingListeners) fn();
 }
 
+// Incremental add — used by the inbox-channel push so a new inbound DM
+// flips the dot before the next poll cycle. The poll still runs as a
+// backstop and reconciles the full set.
+export function addPendingKey(key: string): void {
+  if (pending.has(key)) return;
+  pending.add(key);
+  for (const fn of pendingListeners) fn();
+}
+
 export function isPending(key: string): boolean {
   return pending.has(key);
 }
@@ -255,6 +268,8 @@ export async function startRealtime({
     displayName: string;
     character: string;
     positionsChannel: string;
+    inboxChannel?: string;
+    inboxToken?: string;
   };
   try {
     const res = await fetch(`/api/towns/${slug}/realtime-token`, {
@@ -340,6 +355,57 @@ export async function startRealtime({
   );
 
   sub.subscribe();
+
+  // Per-recipient inbox channel — one persistent sub for the entire
+  // session that receives a notification envelope every time a DM
+  // arrives for us, regardless of which conversation it belongs to.
+  // Drives the ding sound + the pending dot.
+  if (bootstrap.inboxChannel && bootstrap.inboxToken) {
+    const ibx = c.newSubscription(bootstrap.inboxChannel, {
+      token: bootstrap.inboxToken,
+    });
+    inboxSub = ibx;
+    ibx.on("publication", (ctx: PublicationContext) => {
+      const data = ctx.data as
+        | {
+            type?: string;
+            fromKey?: string;
+            fromName?: string;
+            preview?: string;
+            townSlug?: string;
+          }
+        | undefined
+        | null;
+      if (!data || data.type !== "dm") return;
+      if (typeof data.fromKey !== "string" || !data.fromKey) return;
+      // Don't ding for our own echoes — server doesn't publish to the
+      // sender's inbox, but guard anyway in case multi-tab sessions
+      // ever start cross-publishing.
+      if (data.fromKey === self?.participantKey) return;
+      addPendingKey(data.fromKey);
+      playMessageDing();
+      showMessageNotification({
+        fromKey: data.fromKey,
+        fromName: data.fromName || "New message",
+        preview: data.preview || "",
+        townSlug: data.townSlug || activeSlug || "",
+      });
+    });
+    ibx.on("subscribed", () =>
+      console.log(`${LOG} subscribed to ${bootstrap.inboxChannel}`),
+    );
+    ibx.on("error", (ctx) =>
+      console.warn(`${LOG} inbox subscription error`, ctx),
+    );
+    ibx.subscribe();
+  }
+
+  // Arm OS-notification permission request. Permission can only be
+  // requested from a user gesture, so this hooks a one-shot keydown /
+  // pointerdown listener that fires the prompt on the player's first
+  // interaction with the page.
+  armNotifications();
+
   c.connect();
 
   if (staleTimer === null) {
@@ -404,6 +470,9 @@ function stop(): void {
   positionsSub?.unsubscribe();
   positionsSub?.removeAllListeners();
   positionsSub = null;
+  inboxSub?.unsubscribe();
+  inboxSub?.removeAllListeners();
+  inboxSub = null;
   centrifuge?.disconnect();
   centrifuge = null;
   self = null;

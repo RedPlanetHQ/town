@@ -15,17 +15,33 @@ import { getViewerTownSlug } from "./plotClient";
 export type NpcRow = {
   id: string;
   buildingId: string;
+  slotId: string;
   name: string;
   description: string;
   prompt: string;
 };
 
-let byBuildingId: Map<string, NpcRow> = new Map();
+// Each building can host one NPC per slot — see @town/catalog's
+// `Variant.npcPositions`. Renderer reads everything by buildingId and
+// matches each plot.npcs[] slot to the row with the same slotId.
+let byBuildingId: Map<string, NpcRow[]> = new Map();
 let inFlight: Promise<void> | null = null;
 let listeners: Array<() => void> = [];
 
+export function getNpcByBuildingAndSlot(
+  buildingId: string,
+  slotId: string,
+): NpcRow | null {
+  const rows = byBuildingId.get(buildingId);
+  if (!rows) return null;
+  return rows.find((r) => r.slotId === slotId) ?? null;
+}
+
+/** Legacy lookup — returns the first NPC for the building. Prefer
+ *  `getNpcByBuildingAndSlot` for multi-slot variants. */
 export function getNpcByBuildingId(buildingId: string): NpcRow | null {
-  return byBuildingId.get(buildingId) ?? null;
+  const rows = byBuildingId.get(buildingId);
+  return rows && rows.length > 0 ? rows[0]! : null;
 }
 
 export function onNpcsChange(fn: () => void): () => void {
@@ -52,10 +68,15 @@ export async function refreshNpcs(): Promise<void> {
       if (!res.ok) {
         byBuildingId = new Map();
       } else {
-        const body = (await res.json()) as { npcs?: NpcRow[] };
-        const next = new Map<string, NpcRow>();
+        const body = (await res.json()) as {
+          npcs?: Array<Omit<NpcRow, "slotId"> & { slotId?: string }>;
+        };
+        const next = new Map<string, NpcRow[]>();
         for (const n of body.npcs ?? []) {
-          next.set(n.buildingId, n);
+          const row: NpcRow = { ...n, slotId: n.slotId ?? "" };
+          const list = next.get(row.buildingId);
+          if (list) list.push(row);
+          else next.set(row.buildingId, [row]);
         }
         byBuildingId = next;
       }

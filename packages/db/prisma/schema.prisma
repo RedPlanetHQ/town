@@ -254,6 +254,10 @@ model Npc {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   buildingId  String
+  // Slot within the building's variant — see `npcPositions` in @town/catalog
+  // and @town/plot. Empty string is the implicit "first slot" that one-slot
+  // variants resolve to, so existing rows stay valid without backfill.
+  slotId      String   @default("")
   // Display name shown on the speaker line, e.g. "Hudson".
   name        String
   // Short flavor-text shown when the player approaches.
@@ -265,6 +269,7 @@ model Npc {
 
   @@index([userId])
   @@index([userId, buildingId])
+  @@index([userId, buildingId, slotId])
 }
 
 // User-uploaded sprite (PNG bytes for a CustomPlot exterior / interior /

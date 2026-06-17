@@ -24227,30 +24227,35 @@
   "npcs": [
     {
       "buildingId": "home",
+      "slotId": "",
       "tx": 8,
       "ty": 3,
       "label": "warden"
     },
     {
       "buildingId": "library",
+      "slotId": "",
       "tx": 5,
       "ty": 7,
       "label": "archivist"
     },
     {
       "buildingId": "store",
+      "slotId": "",
       "tx": 4,
       "ty": 5,
       "label": "neighbor"
     },
     {
       "buildingId": "office",
+      "slotId": "",
       "tx": 4,
       "ty": 8,
       "label": "engineer"
     },
     {
       "buildingId": "workshop",
+      "slotId": "",
       "tx": 3,
       "ty": 7,
       "label": "chef"

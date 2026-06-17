@@ -121,10 +121,18 @@ const SEED_TEMPLATES: Record<
   },
 };
 
-/** Seed one user-owned NPC per matching building on first plot creation.
- *  Buildings without a template are skipped. The CORE founder is system-
- *  owned (see apps/web/src/data/system-npcs/core-founder.mdx) and is NOT
- *  written here.
+/** Seed one user-owned NPC per slot in the freshly-generated plot. Walks
+ *  `plot.npcs[]` (which already has one entry per variant slot — see
+ *  `@town/plot-gen`) and writes a default Npc row for each. Buildings
+ *  whose plotKey has no template still skip cleanly.
+ *
+ *  Name strategy: the default slot ("") uses the per-plotKey name pool
+ *  (so HOME at "home" gets Hudson, the second instance gets Hattie,
+ *  etc). Named slots fall back to the slot's `label` from the variant —
+ *  so a barista slot reads "Barista" until the user authors an MDX.
+ *
+ *  The CORE founder is system-owned (see
+ *  apps/web/src/data/system-npcs/core-founder.mdx) and is NOT written here.
  *
  *  Idempotent — uses `createMany({ skipDuplicates: true })` keyed on the
  *  Npc PK, so re-running is safe. */
@@ -132,24 +140,39 @@ export async function seedNpcs(userId: string, plot: Plot): Promise<void> {
   const data: Array<{
     userId: string;
     buildingId: string;
+    slotId: string;
     name: string;
     description: string;
     prompt: string;
   }> = [];
-  for (const b of plot.buildings) {
-    const base = b.plotKey.replace(/-\d+$/, "");
+  const buildingsById = new Map(plot.buildings.map((b) => [b.id, b]));
+  for (const slot of plot.npcs) {
+    const building = buildingsById.get(slot.buildingId);
+    if (!building) continue;
+    const base = building.plotKey.replace(/-\d+$/, "");
     const tmpl = SEED_TEMPLATES[base];
     if (!tmpl) continue;
+    const slotId = slot.slotId ?? "";
+    const name =
+      slotId === ""
+        ? defaultNpcName(building.plotKey)
+        : titleCase(slot.label) || titleCase(slotId);
     data.push({
       userId,
-      buildingId: b.id,
-      name: defaultNpcName(b.plotKey),
+      buildingId: building.id,
+      slotId,
+      name,
       description: tmpl.description,
       prompt: tmpl.prompt,
     });
   }
   if (data.length === 0) return;
   await prisma.npc.createMany({ data, skipDuplicates: true });
+}
+
+function titleCase(s: string): string {
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // Per-plot name pool. First entry is used for the base plot ("home"),

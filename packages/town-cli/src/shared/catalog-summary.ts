@@ -16,10 +16,18 @@
 // canonical entry they can run `town init` against a live server and
 // look at `catalog.json` over there.
 
+interface RawNpcPosition {
+  id?: string;
+  tx: number;
+  ty: number;
+  label: string;
+}
+
 interface RawVariant {
   id: string;
   exteriorSpriteCandidates: string[];
-  npcPosition: { tx: number; ty: number; label: string };
+  npcPosition?: RawNpcPosition;
+  npcPositions?: RawNpcPosition[];
 }
 
 interface RawInterior {
@@ -43,7 +51,13 @@ export interface CatalogPlotSummary {
   plotKey: string;
   label: string;
   category: string;
-  variants: Array<{ id: string; exteriorSpriteCandidates: string[] }>;
+  variants: Array<{
+    id: string;
+    exteriorSpriteCandidates: string[];
+    /** Every NPC slot the variant supports. The CLI binds each
+     *  npcs/<buildingId>__<slotId>.mdx to the matching entry's id. */
+    npcSlots: Array<{ id: string; tx: number; ty: number; label: string }>;
+  }>;
   /** Shape (spriteCandidates + props) for the shared interior. Mirrors
    *  the catalog so customPlots can copy an existing interior and tweak
    *  one prop without re-deriving positions. */
@@ -67,10 +81,24 @@ export function summarizeCatalog(raw: unknown): CatalogSummary {
     plotKey: p.id,
     label: p.label,
     category: p.category,
-    variants: (p.variants ?? []).map((v) => ({
-      id: v.id,
-      exteriorSpriteCandidates: v.exteriorSpriteCandidates ?? [],
-    })),
+    variants: (p.variants ?? []).map((v) => {
+      const slotSource: RawNpcPosition[] =
+        v.npcPositions && v.npcPositions.length > 0
+          ? v.npcPositions
+          : v.npcPosition
+            ? [v.npcPosition]
+            : [];
+      return {
+        id: v.id,
+        exteriorSpriteCandidates: v.exteriorSpriteCandidates ?? [],
+        npcSlots: slotSource.map((pos) => ({
+          id: pos.id ?? "",
+          tx: pos.tx,
+          ty: pos.ty,
+          label: pos.label,
+        })),
+      };
+    }),
     interior: p.interior,
   }));
 

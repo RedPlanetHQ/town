@@ -30,6 +30,10 @@ import { validatePlot } from "@town/plot";
 
 const NpcSchema = z.object({
   buildingId: z.string().min(1),
+  // Slot within the building. Empty string is the implicit first slot
+  // (the legacy one-NPC-per-building case). The CLI defaults to "" when
+  // an MDX frontmatter doesn't set it.
+  slotId: z.string().default(""),
   name: z.string().min(1),
   description: z.string(),
   prompt: z.string(),
@@ -45,15 +49,29 @@ const BuildingSchema = z.object({
   variantId: z.string().min(1).optional(),
 });
 
-const CustomVariantSchema = z.object({
-  id: z.string().min(1),
-  exteriorSpriteCandidates: z.array(z.string()).min(1),
-  npcPosition: z.object({
-    tx: z.number(),
-    ty: z.number(),
-    label: z.string(),
-  }),
+const CustomNpcPositionSchema = z.object({
+  id: z.string().optional(),
+  tx: z.number(),
+  ty: z.number(),
+  label: z.string(),
 });
+
+const CustomVariantSchema = z
+  .object({
+    id: z.string().min(1),
+    exteriorSpriteCandidates: z.array(z.string()).min(1),
+    // Legacy single-position field — optional. New customPlots can
+    // ship `npcPositions` alone; older CLI builds still send this.
+    npcPosition: CustomNpcPositionSchema.optional(),
+    npcPositions: z.array(CustomNpcPositionSchema).optional(),
+  })
+  .refine(
+    (v) => Boolean(v.npcPosition) || (v.npcPositions && v.npcPositions.length > 0),
+    {
+      message: "variant must declare `npcPosition` or `npcPositions`",
+      path: ["npcPosition"],
+    },
+  );
 
 const CustomInteriorPropSchema = z.object({
   tx: z.number(),
@@ -144,6 +162,7 @@ export async function POST(req: Request) {
           ...(n.id ? { id: n.id } : {}),
           userId,
           buildingId: n.buildingId,
+          slotId: n.slotId,
           name: n.name,
           description: n.description,
           prompt: n.prompt,

@@ -260,12 +260,13 @@ export function addBuilding(
   const paths = path ? [...plot.paths, path] : plot.paths;
   const npcs = [
     ...plot.npcs,
-    {
+    ...variant.npcSlots.map((slot) => ({
       buildingId: building.id,
-      tx: variant.npcPosition.tx,
-      ty: variant.npcPosition.ty,
-      label: variant.npcPosition.label,
-    },
+      slotId: slot.id,
+      tx: slot.tx,
+      ty: slot.ty,
+      label: slot.label,
+    })),
   ];
 
   const next: Plot = { ...plot, buildings, paths, npcs };
@@ -345,17 +346,19 @@ export function changeVariant(
   const exteriorSprite = variant.exteriorSpriteCandidates[0] ?? current.exteriorSprite;
   const buildings = plot.buildings.slice();
   buildings[idx] = { ...current, variantId: variant.id, exteriorSprite };
-  const npcs = plot.npcs.map((n) =>
-    n.buildingId === input.id
-      ? {
-          ...n,
-          tx: variant.npcPosition.tx,
-          ty: variant.npcPosition.ty,
-          label: variant.npcPosition.label,
-        }
-      : n,
-  );
-  return { ...plot, buildings, npcs };
+  // Reset every PlotNpc bound to this building from the new variant's
+  // slot list. Slot ids that survive the swap (same id in the new
+  // variant) keep their Npc DB row matched on the renderer side; new
+  // slot ids appear without an Npc row until the user authors one.
+  const otherNpcs = plot.npcs.filter((n) => n.buildingId !== input.id);
+  const refreshedNpcs = variant.npcSlots.map((slot) => ({
+    buildingId: input.id,
+    slotId: slot.id,
+    tx: slot.tx,
+    ty: slot.ty,
+    label: slot.label,
+  }));
+  return { ...plot, buildings, npcs: [...otherNpcs, ...refreshedNpcs] };
 }
 
 // Surfaced so the diff helper below can reuse the same `EffectivePlot`
