@@ -245,6 +245,11 @@ export type OverworldPlotOpts = {
    *  Spawns the player south of that building's door so coming out of an
    *  interior puts them back where they entered. */
   spawnFrom?: string;
+  /** Specific PlotBuilding.id the player just exited. Preferred over
+   *  `spawnFrom` when multiple buildings share the same category — e.g.
+   *  coming out of a second STORE-category building should spawn next
+   *  to that building, not the canonical store. */
+  spawnBuildingId?: string;
 };
 
 export function registerOverworldPlotScene(k: KAPLAYCtx) {
@@ -374,7 +379,12 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       const targetCategory = opts.spawnFrom
         ? CATEGORY_BY_LEGACY[opts.spawnFrom]
         : undefined;
+      // Prefer the exact building id when one was passed (multiple
+      // buildings in the same category disambiguate this way), then the
+      // first building of the legacy category, then HOME, then any.
       const spawnBuilding =
+        (opts.spawnBuildingId &&
+          plot.buildings.find((b) => b.id === opts.spawnBuildingId)) ||
         (targetCategory &&
           plot.buildings.find((b) => b.category === targetCategory)) ||
         plot.buildings.find((b) => b.plotKey === "home") ||

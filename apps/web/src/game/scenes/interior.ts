@@ -48,6 +48,11 @@ type Interactable = {
   // (visitors viewing someone else's town won't see / trigger it).
   // Used for system-owned NPCs like the Founder.
   ownerOnly?: boolean;
+  // When true, the interactable is only mounted on the FIRST building
+  // in its category. Lets the STORE interior keep the system Founder
+  // as a singleton even if the user adds extra store-category
+  // buildings (`{ id: "cake", plotKey: "store" }`).
+  primaryInstanceOnly?: boolean;
   // Accent color used for the floating prompt strip. Required when this
   // interactable uses `onTrigger` (no Panel to read the accent from);
   // optional when a `panel` is provided (we'll fall back to panel.accent).
@@ -87,6 +92,9 @@ type Npc = {
   // Same semantics as Interactable.ownerOnly — hide the sprite (and
   // its tile collision) when a visitor is touring.
   ownerOnly?: boolean;
+  // Same semantics as Interactable.primaryInstanceOnly — hide on every
+  // building of this category except the first.
+  primaryInstanceOnly?: boolean;
 };
 
 // Multi-tile static prop (e.g. ATM, kiosk). `tx,ty` is the bottom-left tile
@@ -510,10 +518,42 @@ const INTERIORS: Record<BuildingKey, InteriorSpec> = {
     spawn: { tx: 7, ty: 12 }, // patio, just north of the front doormat
     exit:  { tx: 7, ty: 13 }, // doormat — stepping here returns to overworld
     title: "HOME",
+    // CORE founder — system NPC, singleton across the owner's town.
+    // Lives at HOME on the canonical home building (id === "home"; we
+    // enforce exactly one of those server-side). Visitors don't see him
+    // (ownerOnly). The user-owned butler sprite renders at its plot
+    // slot via the merge in registerInteriorScene below.
+    npcs: [
+      {
+        tx: 4, ty: 4,
+        sprite: "founder",
+        ownerOnly: true,
+        primaryInstanceOnly: true,
+      },
+    ],
     // NPC sprite + interactable are merged in at scene mount from
     // plot.npcs (slot) + the Npc DB row (chat data). The interior spec
-    // only keeps static fixtures like the scratchpad and the bed.
+    // only keeps static fixtures like the scratchpad and the bed, plus
+    // the system Founder above.
     interacts: [
+      {
+        tx: 4, ty: 4,
+        key: "home-founder",
+        label: "Talk to Founder",
+        accent: theme.buildings.HOME.accent,
+        ownerOnly: true,
+        primaryInstanceOnly: true,
+        onTrigger: () =>
+          openNpcGreeting({
+            npcId: "core-founder",
+            name: "Founder",
+            description:
+              "Hangs out at home. Tracks the CORE roadmap — knows what's coming.",
+            accent: theme.buildings.HOME.accent,
+            chatApi: "/api/founder-chat",
+          }),
+        onLeave: () => ui.closeDialogue(),
+      },
       {
         // Scratchpad at the dining table on the back wall (cols 4-5, row 1).
         // The interactable lives on the table base at (5, 2); the player
@@ -686,14 +726,10 @@ const INTERIORS: Record<BuildingKey, InteriorSpec> = {
     spawn: { tx: 7, ty: 8 },
     exit:  { tx: 7, ty: 9 },
     title: "STORE",
-    npcs: [
-      // CORE founder — system NPC. Always at the store for the OWNER
-      // (visitors touring someone else's town don't see him: ownerOnly
-      // skips both this sprite and the matching interactable below).
-      // The user-owned shopkeeper sprite lands here via the plot slot
-      // merge in registerInteriorScene.
-      { tx: 7, ty: 5, sprite: "founder", ownerOnly: true },
-    ],
+    // No system NPCs at the store any more — the CORE founder lives at
+    // HOME (see the HOME interior). The user-owned shopkeeper sprite
+    // lands here via the plot slot merge in registerInteriorScene.
+    npcs: [],
     props: [
       // ATM "price machine" on the left. Sprite is 32x48 (2w x 3h); bottom
       // row sits on (3, 8), so the unit occupies cols 3-4, rows 6-8.
@@ -710,23 +746,6 @@ const INTERIORS: Record<BuildingKey, InteriorSpec> = {
       // + name come from apps/web/src/data/system-npcs/core-founder.mdx.
       // Chat routes through /api/founder-chat — separate prompt + tools
       // from the regular NPC chat.
-      {
-        tx: 7, ty: 5,
-        key: "store-founder",
-        label: "Talk to Founder",
-        accent: theme.buildings.STORE.accent,
-        ownerOnly: true,
-        onTrigger: () =>
-          openNpcGreeting({
-            npcId: "core-founder",
-            name: "Founder",
-            description:
-              "Hangs out at the store. Tracks the CORE roadmap — knows what's coming.",
-            accent: theme.buildings.STORE.accent,
-            chatApi: "/api/founder-chat",
-          }),
-        onLeave: () => ui.closeDialogue(),
-      },
       {
         // Price machine — bottom-left tile of the ATM (player approaches
         // from the south or east).
@@ -913,14 +932,26 @@ export function registerInteriorScene(k: KAPLAYCtx) {
     // Drop owner-only sprites + interacts when a visitor is touring
     // another user's town. System NPCs (Founder) currently use this.
     const ownerView = isViewerOwner();
+    // The first building in this interior's category. `primaryInstanceOnly`
+    // sprites/interactables (e.g. the system Founder) render only there;
+    // every additional building of the same category gets the user's
+    // own plot NPCs but skips the singleton system slot.
+    const myBuilding = plot?.buildings.find((b) => b.id === opts.buildingId);
+    const firstOfCategory = myBuilding
+      ? plot?.buildings.find((b) => b.category === myBuilding.category)
+      : undefined;
+    const isPrimaryInstance =
+      !!myBuilding && firstOfCategory?.id === opts.buildingId;
     const ownerNpcs = baseSpec.npcs ?? [];
     const ownerInteracts = baseSpec.interacts ?? [];
-    const visibleNpcs = ownerView
+    const visibleNpcs = (ownerView
       ? ownerNpcs
-      : ownerNpcs.filter((n) => !n.ownerOnly);
-    const visibleInteracts = ownerView
+      : ownerNpcs.filter((n) => !n.ownerOnly)
+    ).filter((n) => isPrimaryInstance || !n.primaryInstanceOnly);
+    const visibleInteracts = (ownerView
       ? ownerInteracts
-      : ownerInteracts.filter((it) => !it.ownerOnly);
+      : ownerInteracts.filter((it) => !it.ownerOnly)
+    ).filter((it) => isPrimaryInstance || !it.primaryInstanceOnly);
 
     const spec = {
       ...baseSpec,
@@ -1030,7 +1061,14 @@ export function registerInteriorScene(k: KAPLAYCtx) {
         // Route back to the plot-driven overworld (the new default). The
         // legacy "overworld" scene would render its own procedurally
         // generated layout, which makes the town visibly change on exit.
-        k.go("overworld-plot", { spawnFrom: opts.building });
+        // Pass both the category (legacy) and the specific buildingId
+        // so the overworld can drop the player at THIS building's door
+        // even when multiple buildings share the same category (e.g.
+        // two STORE-category buildings).
+        k.go("overworld-plot", {
+          spawnFrom: opts.building,
+          spawnBuildingId: opts.buildingId,
+        });
         return;
       }
       // Broadcast the new interior-local tile so any co-occupant sees us

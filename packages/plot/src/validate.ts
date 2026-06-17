@@ -206,6 +206,22 @@ export function validatePlot(plot: Plot, manifest: Manifest): ValidationResult {
     }
   }
 
+  // Exactly one canonical HOME building, keyed by id "home". The system
+  // Founder NPC + the runtime's CORE-workspace-name override both rely
+  // on this — they only fire on the building with id === "home".
+  const homeCount = plot.buildings.filter((b) => b.id === "home").length;
+  if (homeCount === 0) {
+    issues.push({
+      path: "buildings",
+      message: `town is missing its HOME building (must include one entry with id "home")`,
+    });
+  } else if (homeCount > 1) {
+    issues.push({
+      path: "buildings",
+      message: `more than one building has id "home" — must be exactly one`,
+    });
+  }
+
   // Paths reference real buildings.
   for (const [i, p] of plot.paths.entries()) {
     if (!buildingIds.has(p.from)) {

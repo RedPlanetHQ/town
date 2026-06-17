@@ -294,7 +294,10 @@ export function removeBuilding(
       `no building with id "${input.id}" in plot`,
     );
   }
-  if (baseKey(target.plotKey) === "home") {
+  // Two protections: the canonical home id ("home") is required for the
+  // system Founder + workspace-name override, and the home plotKey
+  // (catalog "home"/"home-2"/…) is the spawn anchor.
+  if (target.id === "home" || baseKey(target.plotKey) === "home") {
     throw new IncrementalError(
       "remove-home-forbidden",
       "cannot remove the HOME building",
