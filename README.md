@@ -1,6 +1,14 @@
-# town
+<p align="center">
+  <img src="apps/web/public/town_logo_light.svg" alt="town" width="120" />
+</p>
 
-> Your world, as a tiny pixel town that grows itself.
+<h1 align="center">town</h1>
+
+<p align="center"><em>Your world, as a tiny pixel town that grows itself.</em></p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-tenkai.png" alt="An overworld screenshot of a town named Tenkai — three buildings nestled in a dense forest, signpost reading 'Tenkai · Harshith Mullapudi · 2 miles'." width="780" />
+</p>
 
 The things you care about — fitness, films, art, the side project — turn into
 buildings. Locals show up to live in them: a gym coach here, a film critic
