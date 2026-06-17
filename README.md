@@ -24,7 +24,7 @@ seed so your town stays *your* town across logins.
 
 ## Make it yours
 
-Editing a town is the same as editing a folder. Two commands.
+Editing a town is the same as editing a folder. Three steps.
 
 ### 1. Log in
 
@@ -32,11 +32,10 @@ Editing a town is the same as editing a folder. Two commands.
 pnpm dlx @redplanethq/town login
 ```
 
-Pick your CORE host (default `https://app.getcore.me`) and town server, then
-authorize in the browser. The CLI saves a PAT to `~/.town/config.json` (mode
-0600 — it's a credential).
+Pick your CORE host and town server, then authorize in the browser. The
+CLI saves a PAT to `~/.town/config.json` (mode 0600).
 
-### 2. Create or clone a town
+### 2. Create or clone
 
 ```bash
 town init
@@ -44,13 +43,13 @@ town init
 
 This is the only entry point — it decides what to do by asking the server:
 
-- **No town yet?** It prompts you for a name and creates one. Folder gets
-  scaffolded at `./<slug>/` with the day-zero trio (home / library / store)
-  and an empty `customPlots/`.
-- **Town already exists?** It confirms and clones into `./<slug>/` — your
+- **No town yet?** Prompts for a name and creates one. Folder gets
+  scaffolded at `./<slug>/` with the day-zero trio (home / library / store).
+- **Town already exists?** Confirms and clones into `./<slug>/` — your
   current buildings, customPlots, and NPC files materialize on disk.
 
-Either way you end up with:
+<details>
+<summary>What the folder looks like</summary>
 
 ```
 <slug>/
@@ -62,7 +61,14 @@ Either way you end up with:
   AGENTS.md           ← orientation for coding agents
 ```
 
+</details>
+
 ### 3. Edit
+
+Everything lives in `<slug>/`. You edit JSON + MDX; the server owns layout.
+
+<details>
+<summary><strong>Add, remove, or swap a building</strong></summary>
 
 Open `<slug>/town.json`:
 
@@ -79,15 +85,56 @@ Open `<slug>/town.json`:
 
 - **Add a building** → append `{ "id": "cafe", "plotKey": "cafe" }`.
 - **Remove a building** → delete its entry.
-- **Swap a variant** → add `"variantId": "cafe.bookshop"` (look up valid ids
-  in `catalog.json`).
+- **Swap a variant** → add `"variantId": "cafe.bookshop"` (look up valid
+  ids in `catalog.json` under the plot's `variants[]`).
 
-You never write tile coordinates, paths, ponds, or decor. The server picks a
-free cell, routes a path from home, refills the surrounding forest. Re-deploy
-twice and the same edit lands in the same spot — it's seeded.
+You never write tile coordinates, paths, ponds, or decor. The server
+picks a free cell, routes a path from home, refills the surrounding
+forest. Re-deploy twice and the same edit lands in the same spot — it's
+seeded.
 
-NPCs work the same way: one MDX per building, drop a `<buildingId>.mdx` with
-frontmatter (`name`, `description`, `buildingId`) and a prompt body.
+</details>
+
+<details>
+<summary><strong>Add or edit an NPC</strong></summary>
+
+Every building gets one NPC. NPCs live in `<slug>/npcs/<buildingId>.mdx`
+— filename matches the `id` you used in `town.json#buildings`. To add a
+new NPC, first add the building, then drop the matching MDX:
+
+```mdx
+---
+buildingId: cafe
+name: Cosma
+description: Barista at the cafe. Knows what you're heads-down on.
+---
+
+You are the barista at the town cafe. Greet the player warmly when they
+walk in and ask what they're heads-down on today. Reference recent CORE
+activity when context is provided. Stay in character, never break the
+fourth wall, and keep replies under three sentences.
+```
+
+The frontmatter is identity — `name` is the speaker line, `description`
+is the flavor text that hovers as someone approaches. The body is the
+system prompt the LLM sees on every turn.
+
+**Prompt conventions that age well**
+
+- Lead with role and place: *"You are the barista at the town cafe."*
+- Anchor the voice in one sentence: tone, what they care about, how
+  they greet.
+- Tell the model what context it'll get. If you read CORE signals into
+  the prompt at runtime, say so — *"reference recent CORE activity when
+  context is provided"*.
+- Cap length: *"keep replies under three sentences"*. Without this the
+  model drifts long and the chat bubble runs off the screen.
+- Lock the frame: *"stay in character, never break the fourth wall"*.
+
+Re-running `town deploy` replaces the entire NPC roster atomically — no
+half-deployed state, no orphan NPCs from deleted buildings.
+
+</details>
 
 ### 4. Deploy
 
@@ -96,19 +143,34 @@ cd <slug>
 town deploy
 ```
 
-Uploads any new PNGs you added (more on that below), then POSTs the whole
-shape to `/api/town`. The server diffs against your persisted plot and runs
-the incremental layout ops — no full regenerations, no churn on untouched
-buildings.
+Uploads any new PNGs (see below), then POSTs `{ buildings, customPlots,
+npcs }` to `/api/town`. The server diffs against your persisted plot and
+runs incremental layout ops — no full regenerations, no churn on
+untouched buildings.
 
 ---
 
 ## Bring your own building
 
-If the catalog doesn't have what you want, define a `customPlot`. Mirror the
-catalog's shape: an interior shell + props + one or more exterior variants.
+If the catalog doesn't have what you want, define a `customPlot`. Mirror
+the catalog's shape: an interior shell + props + one or more exterior
+variants. Reference it from `town.json` as `"plotKey": "custom:<id>"`.
 
-### Folder shape
+Every sprite field accepts one of three ref types — **independently per
+field** — so you can pair an existing catalog exterior with a custom
+interior, a custom exterior with the catalog's prop set, or any mix:
+
+| Looks like | Means | Source |
+| --- | --- | --- |
+| `"exteriors/home/villa-1.png"` | Existing catalog asset | `/sprites/catalog/` |
+| `"./exterior.png"` | Local PNG in your customPlot folder | `town deploy` uploads it |
+| `"sprite:abc123…"` | Previously uploaded asset | `/api/sprites/<hash>.png` |
+
+Open `catalog.json` in your folder — `exteriorSprites`, `interiorSprites`,
+`propSprites` list every catalog path you can reuse.
+
+<details>
+<summary>Folder layout</summary>
 
 ```
 <slug>/
@@ -121,7 +183,10 @@ catalog's shape: an interior shell + props + one or more exterior variants.
         crate.png          ← optional
 ```
 
-`plot.json`:
+</details>
+
+<details>
+<summary>Example <code>plot.json</code></summary>
 
 ```json
 {
@@ -145,33 +210,24 @@ catalog's shape: an interior shell + props + one or more exterior variants.
 }
 ```
 
-Reference it from `town.json` as `"plotKey": "custom:record-store"`.
+</details>
 
-### Mix and match
+<details>
+<summary>What happens on deploy</summary>
 
-Every sprite field accepts one of three ref types — independently per field:
+The CLI walks every sprite ref, uploads each local PNG to `/api/sprites`
+(PNG-only, 1 MiB cap, content-addressed in Postgres), and rewrites the
+ref to `sprite:<hash>` before sending. Re-deploying is free — hashes that
+already exist are no-ops.
 
-| Looks like | Means | Source |
-| --- | --- | --- |
-| `"exteriors/home/villa-1.png"` | Existing catalog asset | Server's `/sprites/catalog/` |
-| `"./exterior.png"` | Local PNG in this customPlot folder | `town deploy` uploads it |
-| `"sprite:abc123…"` | Previously uploaded asset | `/api/sprites/abc123.png` |
-
-So a customPlot can pair an existing catalog exterior with a custom interior,
-or a custom exterior with the catalog's prop set, or any combination. Open
-`catalog.json` in your folder — `exteriorSprites`, `interiorSprites`,
-`propSprites` list every catalog path you can reuse.
-
-On `town deploy` the CLI walks every ref, uploads each local PNG to
-`/api/sprites` (PNG-only, 1 MiB cap, content-addressed in Postgres), and
-rewrites the ref to `sprite:<hash>` before sending. Re-deploying is free —
-hashes that already exist are no-ops.
+</details>
 
 ---
 
 ## Hack on the repo
 
-### Stack
+<details>
+<summary>Stack</summary>
 
 - **pnpm + Turbo** monorepo (`pnpm@10`, Node 20+)
 - **Next.js 16** (App Router) — server routes, OAuth callback, webhooks
@@ -180,7 +236,10 @@ hashes that already exist are no-ops.
 - **BullMQ + Redis** — event worker for inbound CORE webhooks
 - **AI SDK** (Anthropic / OpenAI) — plot naming + NPC dialog
 
-### Workspace layout
+</details>
+
+<details>
+<summary>Workspace layout</summary>
 
 ```
 apps/
@@ -197,7 +256,10 @@ docs/                   Design notes (variant taxonomy, etc.)
 
 Each package has its own README — start there when working in one.
 
-### Getting started
+</details>
+
+<details>
+<summary>Getting started</summary>
 
 ```bash
 cp .env.example .env
@@ -214,7 +276,10 @@ Then open <http://localhost:3001>. `.env` lives at the repo root;
 `apps/web/.env` is a symlink so Next picks it up, and `@town/db` scripts
 load it via `dotenv-cli`.
 
-### Common commands
+</details>
+
+<details>
+<summary>Common commands</summary>
 
 | Command | What it does |
 | --- | --- |
@@ -234,12 +299,15 @@ The event worker (BullMQ consumer for CORE webhooks) runs separately:
 pnpm --filter @town/web run worker
 ```
 
-### Auth & CORE integration
+</details>
+
+<details>
+<summary>Auth &amp; CORE integration</summary>
 
 CORE OAuth2 + PKCE. The browser only ever sees an opaque session cookie
 (`core-town:sid`); access and refresh tokens live in the `Session` table.
-The `town` CLI authenticates with a CORE PAT instead — every API route that
-accepts cookies also accepts `Authorization: Bearer <pat>`.
+The `town` CLI authenticates with a CORE PAT instead — every API route
+that accepts cookies also accepts `Authorization: Bearer <pat>`.
 
 - Client entry points: `apps/web/src/game/auth.ts`
 - Server endpoints: `apps/web/src/app/api/auth/{login,callback,me,logout}/route.ts`
@@ -257,6 +325,8 @@ fetch(`${CORE_OAUTH_BASE}/api/v1/...`, {
 
 Inbound webhooks land at `/api/events` and are HMAC-verified against
 `TOWN_WEBHOOK_SECRET` (`X-Town-Signature: sha256(secret, rawBody)`).
+
+</details>
 
 ### Where to read next
 
