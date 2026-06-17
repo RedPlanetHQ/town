@@ -159,6 +159,10 @@ async function maybeTriggerNpcReply(
       description: picked.description,
       prompt: picked.prompt,
     },
+    owner: {
+      participantKey: access.ownerParticipantKey,
+      name: access.ownerName,
+    },
     history: recent.map((r) => ({
       authorKey: r.authorKey,
       authorName: r.authorName,

@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useGroupChatState } from "../client/useGroupChatState";
 import { closeRoom, postMessage, publishTyping } from "../client/channel";
+import { authorColor } from "./authorColor";
 
 export function GroupChatSurface() {
   const state = useGroupChatState();
@@ -68,6 +69,8 @@ export function GroupChatSurface() {
     queueMicrotask(() => inputRef.current?.focus());
   };
 
+  const ownerKey = state.room?.ownerParticipantKey ?? "";
+
   return (
     <div className="pointer-events-auto fixed bottom-4 right-4 z-30 flex w-[360px] flex-col gap-2 rounded-md border-2 border-ink bg-paper p-3 shadow-[6px_6px_0_0_#1a1d22]">
       <div className="flex items-center justify-between gap-2 border-b-2 border-ink pb-2">
@@ -110,7 +113,7 @@ export function GroupChatSurface() {
           </div>
         ) : null}
         {state.messages.map((m) => (
-          <MessageLine key={m.id} m={m} />
+          <MessageLine key={m.id} m={m} ownerKey={ownerKey} />
         ))}
       </div>
 
@@ -146,14 +149,29 @@ export function GroupChatSurface() {
   );
 }
 
-function MessageLine({ m }: { m: { authorName: string; text: string; isNpc: boolean } }) {
+function MessageLine({
+  m,
+  ownerKey,
+}: {
+  m: { authorKey: string; authorName: string; text: string; isNpc: boolean };
+  ownerKey: string;
+}) {
+  // One stable hue per author key. Same user always renders in the
+  // same color across messages, refreshes, and both sides of the chat.
+  const isOwner = !m.isNpc && ownerKey !== "" && m.authorKey === ownerKey;
   return (
     <div className="text-[13px] leading-snug text-ink">
       <span
         className="mr-1 font-bold"
-        style={{ color: m.isNpc ? "#7a3f00" : "var(--ink)" }}
+        style={{ color: authorColor(m.authorKey) }}
       >
-        {m.authorName}:
+        {m.authorName}
+        {isOwner ? (
+          <span className="ml-1 text-[10px] font-bold uppercase tracking-wider opacity-60">
+            (owner)
+          </span>
+        ) : null}
+        :
       </span>
       <span className="whitespace-pre-wrap break-words">{m.text}</span>
     </div>

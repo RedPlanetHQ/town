@@ -40,6 +40,8 @@ interface HistoryResponse {
   channelId: string;
   subscribeToken: string;
   messages: GroupMessageRow[];
+  ownerParticipantKey: string;
+  ownerName: string;
 }
 
 let activeSub: Subscription | null = null;
@@ -81,6 +83,7 @@ export async function openRoom(input: OpenRoomInput): Promise<void> {
     buildingId: input.buildingId,
     buildingLabel: input.buildingLabel,
     channelId: "",
+    ownerParticipantKey: "",
   };
   groupChatStore.openRoom(tentative);
 
@@ -105,10 +108,12 @@ export async function openRoom(input: OpenRoomInput): Promise<void> {
   }
   if (myEpoch !== openEpoch) return;
 
-  // Re-publish the room with the resolved channelId now that we know it.
+  // Re-publish the room with the resolved channelId + owner key now
+  // that the history endpoint told us about them.
   groupChatStore.openRoom({
     ...tentative,
     channelId: body.channelId,
+    ownerParticipantKey: body.ownerParticipantKey,
   });
   groupChatStore.setReady(body.messages);
 

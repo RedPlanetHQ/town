@@ -36,6 +36,7 @@ import { VisitorHud } from "./VisitorHud";
 import { PALETTE } from "../game/config";
 import { ui } from "./store";
 import { GroupChatPrompt, GroupChatSurface } from "../features/group-chat";
+import { TransitionLoading } from "./TransitionLoading";
 
 // The mount point: a canvas owned by React, populated by kaplay in useEffect,
 // and a sibling overlay layer for the React-rendered UI (HUD, prompt, panels).
@@ -311,11 +312,13 @@ export function TownGame(props: TownGameProps = {}) {
       <GroupChatPrompt />
       <GroupChatSurface />
 
-      {/* Bottom-right CTA — visitor only. Pitches the invitee on
+      {/* Bottom-LEFT CTA — visitor only. Pitches the invitee on
           building their own town; opens town.getcore.me in a new tab
-          so they don't lose their current visit. */}
+          so they don't lose their current visit. Sits left so the
+          bottom-right corner stays clear for the group chat overlay
+          (and the 1-1 DM panel). */}
       {isVisitor ? (
-        <div className="pointer-events-auto absolute right-4 bottom-4 z-30">
+        <div className="pointer-events-auto absolute left-4 bottom-4 z-30">
           <BuildYourOwnTownCta />
         </div>
       ) : null}
@@ -325,6 +328,12 @@ export function TownGame(props: TownGameProps = {}) {
           ready={worldReady}
           onDone={() => setBootVisible(false)}
         />
+      ) : !worldReady ? (
+        // Mid-game scene transition (interior → overworld is the loud
+        // one). BootScreen has already dismissed, so without this card
+        // the player sees a blank green canvas for ~1s while the new
+        // scene fetches + redraws.
+        <TransitionLoading />
       ) : null}
     </div>
   );

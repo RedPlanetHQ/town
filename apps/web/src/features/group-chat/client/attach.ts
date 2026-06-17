@@ -42,9 +42,11 @@ export function mountGroupChatForScene(input: MountGroupChatInput): void {
     slug,
     buildingId,
     buildingLabel,
-    // channelId is server-derived; we don't need it for the prompt
-    // (only for the live room), so leave it empty here.
+    // channelId + ownerParticipantKey are server-derived; we don't
+    // need them for the prompt (only for the live room), so leave
+    // them empty here. openRoom fills them in when the user presses G.
     channelId: "",
+    ownerParticipantKey: "",
   });
 
   // [G] toggles the overlay. Open kicks off room subscription +

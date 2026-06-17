@@ -13,6 +13,10 @@ export type GroupChatRoom = {
   buildingId: string;
   buildingLabel: string;
   channelId: string;
+  /** participantKey for the town owner — used by the surface to render
+   *  "(owner)" next to the resident's name. Empty when the room is
+   *  in its tentative pre-history state. */
+  ownerParticipantKey: string;
 };
 
 export type TypingEntry = {

@@ -8,6 +8,7 @@
 import type { Plot, PlotBuilding } from "@town/plot";
 
 import { prisma } from "@/lib/db";
+import { userParticipantKey } from "@/lib/participant";
 import { resolveViewer, type ResolvedViewer } from "@/lib/viewer";
 
 import { roomChannel } from "./channel";
@@ -17,6 +18,15 @@ export type GroupChatAccess = {
   building: PlotBuilding;
   channelId: string;
   plot: Plot;
+  /** participantKey for the town owner — `user:<ownerId>`. Both the
+   *  history endpoint and the NPC reply pipeline use it to mark the
+   *  resident's messages so the LLM and the UI can render an `(owner)`
+   *  affordance instead of the raw display name. */
+  ownerParticipantKey: string;
+  /** Display name of the town owner — used in the LLM system prompt
+   *  so NPCs can address the resident by name even when their
+   *  messages arrive prefixed `[owner]`. */
+  ownerName: string;
 };
 
 export type GroupChatAccessError =
@@ -51,9 +61,15 @@ export async function resolveGroupChatAccess(
   if ("error" in view) return { error: view.error };
 
   // The plot lives on the town owner's row — visitors read the same blob.
-  const row = await prisma.plotRow.findFirst({
-    where: { userId: view.town.ownerId },
-  });
+  // Pull the owner's display name in the same round-trip so we don't
+  // make a second query per request.
+  const [row, owner] = await Promise.all([
+    prisma.plotRow.findFirst({ where: { userId: view.town.ownerId } }),
+    prisma.user.findUnique({
+      where: { id: view.town.ownerId },
+      select: { name: true },
+    }),
+  ]);
   if (!row) return { error: "no-plot" };
 
   const plot = row.json as unknown as Plot;
@@ -66,5 +82,7 @@ export async function resolveGroupChatAccess(
     building,
     channelId: roomChannel(slug, building.id),
     plot,
+    ownerParticipantKey: userParticipantKey(view.town.ownerId),
+    ownerName: owner?.name || "the resident",
   };
 }

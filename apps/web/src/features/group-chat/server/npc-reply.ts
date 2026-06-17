@@ -41,6 +41,11 @@ export interface NpcReplyInput {
   pick: ModeratorPick;
   /** NPC's authored row from the Npc table. */
   npc: { id: string; name: string; description: string; prompt: string };
+  /** Town owner — used to mark the resident's lines in the history as
+   *  `[owner]` so the model never confuses a guest for the host, and
+   *  to brief it on the owner's display name in the system prompt so
+   *  the NPC can still address them properly. */
+  owner: { participantKey: string; name: string };
   /** Last ~N rows in the room, oldest → newest. The most recent row is
    *  the human message that triggered this reply. */
   history: Array<{
@@ -80,7 +85,7 @@ const HISTORY_TURNS_MAX = 20;
 export async function generateAndPublishNpcReply(
   input: NpcReplyInput,
 ): Promise<void> {
-  const { channelId, pick, npc, history } = input;
+  const { channelId, pick, npc, owner, history } = input;
 
   // Announce the NPC is "typing" the moment the picker selects them.
   // Centrifugo carries this as an ephemeral pulse — receivers show the
@@ -94,8 +99,12 @@ export async function generateAndPublishNpcReply(
   };
   await publish(channelId, typingWire);
 
-  const system = buildGroupSystemPrompt(npc, pick.addressed);
-  const uiMessages = historyToUIMessages(history.slice(-HISTORY_TURNS_MAX), npc.id);
+  const system = buildGroupSystemPrompt(npc, owner, pick.addressed);
+  const uiMessages = historyToUIMessages(
+    history.slice(-HISTORY_TURNS_MAX),
+    npc.id,
+    owner.participantKey,
+  );
 
   let model;
   try {
@@ -172,11 +181,13 @@ export async function generateAndPublishNpcReply(
 
 function buildGroupSystemPrompt(
   npc: { name: string; description: string; prompt: string },
+  owner: { name: string },
   addressed: boolean,
 ): string {
   const name = safeInline(npc.name, 80);
   const role = safeInline(npc.description, 240);
   const voice = safeBlock(npc.prompt, 4000);
+  const ownerName = safeInline(owner.name, 80) || "the resident";
   const tone = addressed
     ? `The most recent message addressed you by name — respond to it directly.`
     : `Chime in only if you have something useful or in-character to add.`;
@@ -189,6 +200,11 @@ function buildGroupSystemPrompt(
     "Voice & behaviour:",
     voice,
     "",
+    // Owner identity: their lines arrive marked `[owner]` instead of by
+    // name so the model never mistakes a guest for the resident. We
+    // surface the actual name here so it can still address them
+    // properly when replying.
+    `The town owner (resident) is ${ownerName}. Their messages are prefixed with [owner].`,
     tone,
   ].join("\n");
 }
@@ -196,6 +212,7 @@ function buildGroupSystemPrompt(
 function historyToUIMessages(
   rows: NpcReplyInput["history"],
   selfNpcId: string,
+  ownerParticipantKey: string,
 ): UIMessage[] {
   const out: UIMessage[] = [];
   for (let i = 0; i < rows.length; i++) {
@@ -208,7 +225,14 @@ function historyToUIMessages(
         parts: [{ type: "text", text: r.text }],
       } as UIMessage);
     } else {
-      const prefix = `[${r.authorName}] `;
+      // The resident gets a stable [owner] tag instead of their
+      // display name — the system prompt tells the model who the
+      // owner actually is by name. Everyone else gets their name.
+      const speakerTag =
+        !r.isNpc && r.authorKey === ownerParticipantKey
+          ? "owner"
+          : r.authorName;
+      const prefix = `[${speakerTag}] `;
       out.push({
         id: `gm-${i}`,
         role: "user",

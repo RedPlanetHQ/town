@@ -61,6 +61,8 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
       channelId: access.channelId,
       subscribeToken,
       messages,
+      ownerParticipantKey: access.ownerParticipantKey,
+      ownerName: access.ownerName,
     }),
     { status: 200, headers: { "content-type": "application/json" } },
   );
