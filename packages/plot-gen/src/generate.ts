@@ -2,7 +2,7 @@
 // and returns a fully-formed Plot ready to be persisted or rendered.
 
 import type { Catalog, Plot as CatalogPlot, Variant } from "@town/catalog";
-import type { Manifest, Plot, PlotBuilding, PlotPath } from "@town/plot";
+import type { CustomPlot, Manifest, Plot, PlotBuilding, PlotPath } from "@town/plot";
 import { generateLayout, type BuildingRect } from "./layout";
 import { roadTiles } from "./roads";
 import { scatterDecor } from "./decor";
@@ -21,6 +21,11 @@ export interface GenerateInput {
   variantOverrides?: Record<string, string>;
   /** Plot id label. Default `${seed}-default`. */
   id?: string;
+  /** User-defined plots. Carried straight through to the output Plot so
+   *  the renderer + later incremental ops can see them. The base layout
+   *  is still driven by PLOT_PRIORITY; only future `addBuilding` calls
+   *  consult these. */
+  customPlots?: CustomPlot[];
 }
 
 /** Resolve `plotKey` → catalog Plot + chosen Variant. Returns null if the
@@ -138,5 +143,8 @@ export function generatePlot(input: GenerateInput): Plot {
     ponds,
     decor,
     npcs,
+    ...(input.customPlots && input.customPlots.length > 0
+      ? { customPlots: input.customPlots }
+      : {}),
   };
 }

@@ -1,130 +1,159 @@
-// `town deploy` — push the local plot folder back to the town server.
+// `town deploy` — push the local town folder back to the server.
 //
-// Reads:
-//   <plot-dir>/plot.json          → POST /api/plot   { plot }
-//   <plot-dir>/npcs/<id>.mdx (*)  → POST /api/npcs   { npcs: [...] }
+// Flow:
+//   1. Read `town.json` + `customPlots/<id>/plot.json` (each) +
+//      `npcs/<id>.mdx` (each).
+//   2. For every sprite ref inside a customPlot, classify it:
+//        a. "./foo.png"            → resolve to disk, POST bytes to
+//                                    /api/sprites, replace the ref with
+//                                    "sprite:<contentHash>".
+//        b. "sprite:<hash>"        → already uploaded, no-op.
+//        c. anything else          → treated as a catalog-relative path;
+//                                    server validates against catalog.
+//   3. POST /api/town { buildings, customPlots, npcs }.
 //
-// MDX frontmatter shape (matches what `town init` wrote):
-//   ---
-//   id: cuid (optional — preserved when present)
-//   buildingId: <plot.buildings[].id>
-//   name: <display name>
-//   description: <one-line blurb>
-//   ---
-//   <system prompt body>
-//
-// Server validates the plot against the catalog + manifest. On a
-// validation failure the deploy aborts and we surface the issues
-// verbatim — they're useful for both humans and coding agents that
-// might be iterating against the local copy.
-//
-// Auth: the CORE PAT saved by `town login`. Both endpoints accept it
-// as `Authorization: Bearer <pat>`.
+// On any validation failure we abort before mutating server state. The
+// /api/town handler runs the same diff/apply pipeline /api/plot's POST
+// did before, so the server still owns layout, paths, ponds, decor.
 
 import { Command } from "commander";
 import * as p from "@clack/prompts";
 import chalk from "chalk";
-import matter from "gray-matter";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, isAbsolute } from "node:path";
 
 import { getConfig } from "../config.js";
+import {
+  readCustomPlots,
+  readNpcsDir,
+  readTownJson,
+  type CustomPlotDTO,
+  type LoadedCustomPlot,
+} from "../shared/town-io.js";
 
-interface NpcPayload {
-  id?: string;
-  buildingId: string;
-  name: string;
-  description: string;
-  prompt: string;
+interface PostBody {
+  buildings: Array<{ id: string; plotKey: string; variantId?: string }>;
+  customPlots: CustomPlotDTO[];
+  npcs: Array<{
+    id?: string;
+    buildingId: string;
+    name: string;
+    description: string;
+    prompt: string;
+  }>;
 }
 
-async function readPlot(dir: string): Promise<unknown> {
-  const plotPath = join(dir, "plot.json");
-  if (!existsSync(plotPath)) {
-    throw new Error(`No plot.json in ${dir} — is this a town init folder?`);
-  }
-  const raw = await readFile(plotPath, "utf8");
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    throw new Error(
-      `plot.json isn't valid JSON: ${e instanceof Error ? e.message : e}`,
-    );
-  }
-}
-
-async function readNpcs(dir: string): Promise<NpcPayload[]> {
-  const npcDir = join(dir, "npcs");
-  if (!existsSync(npcDir)) return [];
-  const npcStat = await stat(npcDir);
-  if (!npcStat.isDirectory()) return [];
-  const entries = await readdir(npcDir);
-  const mdx = entries.filter((e) => e.endsWith(".mdx") || e.endsWith(".md"));
-
-  const out: NpcPayload[] = [];
-  for (const file of mdx) {
-    const full = join(npcDir, file);
-    const raw = await readFile(full, "utf8");
-    const parsed = matter(raw);
-    const data = parsed.data as Record<string, unknown>;
-
-    const buildingId =
-      typeof data.buildingId === "string" ? data.buildingId : "";
-    const name = typeof data.name === "string" ? data.name : "";
-    const description =
-      typeof data.description === "string" ? data.description : "";
-    const id = typeof data.id === "string" ? data.id : undefined;
-
-    if (!buildingId) {
-      throw new Error(
-        `${file}: frontmatter is missing \`buildingId\` — can't decide which building this NPC lives in.`,
-      );
-    }
-    if (!name) {
-      throw new Error(`${file}: frontmatter is missing \`name\`.`);
-    }
-
-    out.push({
-      ...(id ? { id } : {}),
-      buildingId,
-      name,
-      description,
-      prompt: parsed.content.trim(),
-    });
-  }
-  return out;
-}
-
-interface PlotPostError {
+interface PostError {
   error?: string;
+  code?: string;
   detail?: string;
   issues?: Array<{ path?: string; message?: string }>;
 }
 
-async function postJson<T>(
-  url: string,
-  body: unknown,
+interface SpriteUploadResponse {
+  contentHash: string;
+  width: number;
+  height: number;
+  byteSize: number;
+}
+
+function isLocalSpriteRef(ref: string): boolean {
+  // Local refs are explicitly relative — "./", "../", or "foo/bar.png"
+  // where the corresponding file exists relative to the customPlot dir.
+  // We're conservative: anything that doesn't look like a "sprite:<hash>"
+  // and that does have a file on disk we treat as local.
+  return ref.startsWith("./") || ref.startsWith("../");
+}
+
+function isUploadedSpriteRef(ref: string): boolean {
+  return ref.startsWith("sprite:");
+}
+
+async function uploadSprite(
+  townUrl: string,
   pat: string,
-): Promise<{ ok: true; data: T } | { ok: false; status: number; body: PlotPostError }> {
-  const res = await fetch(url, {
+  pngPath: string,
+): Promise<string> {
+  const bytes = await readFile(pngPath);
+  const res = await fetch(`${townUrl}/api/sprites`, {
     method: "POST",
     headers: {
-      "content-type": "application/json",
       authorization: `Bearer ${pat}`,
+      "content-type": "image/png",
     },
-    body: JSON.stringify(body),
+    body: new Uint8Array(bytes),
   });
   if (!res.ok) {
-    let parsed: PlotPostError = {};
-    try {
-      parsed = (await res.json()) as PlotPostError;
-    } catch {
-      // server didn't bother with JSON; keep an empty body
-    }
-    return { ok: false, status: res.status, body: parsed };
+    const raw = await res.text();
+    throw new Error(`upload ${pngPath} failed: ${res.status} ${raw}`);
   }
-  return { ok: true, data: (await res.json()) as T };
+  const parsed = (await res.json()) as SpriteUploadResponse;
+  return `sprite:${parsed.contentHash}`;
+}
+
+/** Walk every sprite reference inside one CustomPlotDTO and rewrite the
+ *  local ones. Returns a new CustomPlotDTO so callers can replace it. */
+async function uploadLocalSprites(
+  townUrl: string,
+  pat: string,
+  loaded: LoadedCustomPlot,
+  rewriteCache: Map<string, string>,
+  log: (msg: string) => void,
+): Promise<CustomPlotDTO> {
+  const { baseDir, plot } = loaded;
+
+  async function rewrite(ref: string, where: string): Promise<string> {
+    if (isUploadedSpriteRef(ref)) return ref;
+    if (!isLocalSpriteRef(ref)) return ref; // catalog path, leave alone
+    const filePath = isAbsolute(ref) ? ref : resolve(baseDir, ref);
+    if (!existsSync(filePath)) {
+      throw new Error(`${where}: file not found at ${ref} (resolved to ${filePath})`);
+    }
+    const cached = rewriteCache.get(filePath);
+    if (cached) return cached;
+    log(`  ↑ uploading ${ref}`);
+    const uploaded = await uploadSprite(townUrl, pat, filePath);
+    rewriteCache.set(filePath, uploaded);
+    return uploaded;
+  }
+
+  const nextInterior = {
+    spriteCandidates: await Promise.all(
+      plot.interior.spriteCandidates.map((s, i) =>
+        rewrite(s, `customPlots/${plot.id}.interior.spriteCandidates[${i}]`),
+      ),
+    ),
+    props: await Promise.all(
+      plot.interior.props.map(async (prop, i) => ({
+        ...prop,
+        sprite: await rewrite(
+          prop.sprite,
+          `customPlots/${plot.id}.interior.props[${i}].sprite`,
+        ),
+      })),
+    ),
+  };
+
+  const nextVariants = await Promise.all(
+    plot.variants.map(async (v, i) => ({
+      ...v,
+      exteriorSpriteCandidates: await Promise.all(
+        v.exteriorSpriteCandidates.map((s, j) =>
+          rewrite(
+            s,
+            `customPlots/${plot.id}.variants[${i}].exteriorSpriteCandidates[${j}]`,
+          ),
+        ),
+      ),
+    })),
+  );
+
+  return {
+    ...plot,
+    interior: nextInterior,
+    variants: nextVariants,
+  };
 }
 
 async function runDeploy(opts: { dir?: string }): Promise<void> {
@@ -145,73 +174,105 @@ async function runDeploy(opts: { dir?: string }): Promise<void> {
 
   // Stage every read up front so we don't half-deploy when one file is
   // malformed.
-  let plot: unknown;
-  let npcs: NpcPayload[];
+  let town;
+  let customPlots: LoadedCustomPlot[];
+  let npcs;
   try {
-    plot = await readPlot(dir);
-    npcs = await readNpcs(dir);
+    town = await readTownJson(dir);
+    customPlots = await readCustomPlots(dir);
+    npcs = await readNpcsDir(dir);
   } catch (err) {
     p.cancel(err instanceof Error ? err.message : "unknown error reading files");
     process.exit(1);
   }
 
+  if (!Array.isArray(town.buildings) || town.buildings.length === 0) {
+    p.cancel("town.json#buildings is empty — every town needs at least HOME.");
+    process.exit(1);
+  }
+
   const spinner = p.spinner();
 
-  // 1. Plot.
-  spinner.start("Uploading plot…");
-  const plotRes = await postJson<{ version: number }>(
-    `${townUrl}/api/plot`,
-    { plot },
-    pat,
-  );
-  if (!plotRes.ok) {
-    spinner.stop(chalk.red(`Plot upload failed (${plotRes.status})`));
-    if (plotRes.body.error) {
-      p.log.error(`error: ${plotRes.body.error}`);
+  // 1. Upload local PNGs and rewrite refs.
+  let mergedCustomPlots: CustomPlotDTO[];
+  try {
+    if (customPlots.length > 0) {
+      spinner.start(`Uploading sprites for ${customPlots.length} customPlot(s)…`);
+      const cache = new Map<string, string>();
+      const out: CustomPlotDTO[] = [];
+      for (const loaded of customPlots) {
+        out.push(
+          await uploadLocalSprites(townUrl, pat, loaded, cache, (m) => p.log.message(m)),
+        );
+      }
+      mergedCustomPlots = out;
+      spinner.stop(chalk.green(`Uploaded ${cache.size} sprite(s)`));
+    } else {
+      mergedCustomPlots = town.customPlots ?? [];
     }
-    if (plotRes.body.issues && plotRes.body.issues.length > 0) {
+  } catch (err) {
+    spinner.stop(chalk.red("Sprite upload failed"));
+    p.outro(chalk.red(err instanceof Error ? err.message : "unknown error"));
+    process.exit(1);
+  }
+
+  // 2. POST the consolidated payload.
+  const body: PostBody = {
+    buildings: town.buildings.map((b) => ({
+      id: b.id,
+      plotKey: b.plotKey,
+      ...(b.variantId ? { variantId: b.variantId } : {}),
+    })),
+    customPlots: mergedCustomPlots,
+    npcs,
+  };
+
+  spinner.start("Uploading town…");
+  const res = await fetch(`${townUrl}/api/town`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${pat}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let parsed: PostError = {};
+    try {
+      parsed = (await res.json()) as PostError;
+    } catch {
+      // ignore
+    }
+    spinner.stop(chalk.red(`Deploy failed (${res.status})`));
+    if (parsed.error) p.log.error(`error: ${parsed.error}`);
+    if (parsed.code) p.log.error(`code: ${parsed.code}`);
+    if (parsed.detail) p.log.error(parsed.detail);
+    if (parsed.issues && parsed.issues.length > 0) {
       p.log.error("Validation issues:");
-      for (const issue of plotRes.body.issues) {
+      for (const issue of parsed.issues) {
         p.log.error(`  • ${issue.path ?? "(root)"}: ${issue.message ?? "?"}`);
       }
-    } else if (plotRes.body.detail) {
-      p.log.error(plotRes.body.detail);
     }
-    p.outro(chalk.red("Deploy aborted — fix plot.json and try again."));
+    p.outro(chalk.red("Deploy aborted — fix the issues and try again."));
     process.exit(1);
   }
-  spinner.stop(chalk.green(`Plot uploaded (v${plotRes.data.version})`));
-
-  // 2. NPCs (bulk replace).
-  spinner.start(`Uploading ${npcs.length} NPC(s)…`);
-  const npcRes = await postJson<{ count: number }>(
-    `${townUrl}/api/npcs`,
-    { npcs },
-    pat,
-  );
-  if (!npcRes.ok) {
-    spinner.stop(chalk.red(`NPC upload failed (${npcRes.status})`));
-    if (npcRes.body.error) p.log.error(`error: ${npcRes.body.error}`);
-    if (npcRes.body.detail) p.log.error(npcRes.body.detail);
-    p.outro(chalk.red("Plot was saved, but NPC roster wasn't updated."));
-    process.exit(1);
-  }
-  spinner.stop(chalk.green(`NPC roster replaced (${npcRes.data.count} row(s))`));
-
-  p.outro(
+  const data = (await res.json()) as { version: number; count: number };
+  spinner.stop(
     chalk.green(
-      `Done. Visit ${townUrl} to see your changes.`,
+      `Town updated (v${data.version}, ${data.count} NPC row(s) replaced)`,
     ),
   );
+
+  p.outro(chalk.green(`Done. Visit ${townUrl} to see your changes.`));
 }
 
 export function registerDeploy(program: Command): void {
   program
     .command("deploy")
-    .description("Push local plot.json + npcs/*.mdx back to the town server")
+    .description("Upload local town.json + customPlots + npcs to the server")
     .option(
       "-d, --dir <path>",
-      "Folder containing plot.json + npcs/. Defaults to the current directory.",
+      "Folder containing town.json + customPlots/ + npcs/. Defaults to the current directory.",
     )
     .action(async (opts: { dir?: string }) => {
       await runDeploy(opts);

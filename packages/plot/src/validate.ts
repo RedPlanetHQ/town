@@ -4,7 +4,8 @@
 
 import { getPlot as getCatalogPlot, getVariant } from "@town/catalog";
 import type { Manifest } from "./manifest";
-import type { Plot } from "./types";
+import type { CustomPlot, Plot, SpriteRef } from "./types";
+import { customPlotId } from "./types";
 
 export interface ValidationIssue {
   path: string;
@@ -16,11 +17,119 @@ export interface ValidationResult {
   issues: ValidationIssue[];
 }
 
+/** True for sprite refs that have already been uploaded to the server
+ *  (e.g. "sprite:abc123..."). These are served from /api/sprites/<hash>.png. */
+function isUploadedSpriteRef(ref: SpriteRef): boolean {
+  return ref.startsWith("sprite:");
+}
+
+/** Validate a single sprite reference. The server accepts either an
+ *  uploaded `sprite:<hash>` token or a catalog-relative path that resolves
+ *  to an asset shipped in /sprites/catalog or /sprites/extras. Locally-
+ *  scoped "./foo.png" refs aren't allowed here — the CLI must rewrite
+ *  them to `sprite:<hash>` before deploy. */
+function validateSpriteRef(ref: SpriteRef, path: string): ValidationIssue | null {
+  if (!ref || typeof ref !== "string") {
+    return { path, message: `sprite reference must be a non-empty string` };
+  }
+  if (isUploadedSpriteRef(ref)) {
+    const hash = ref.slice("sprite:".length);
+    if (!/^[a-f0-9]{8,128}$/.test(hash)) {
+      return { path, message: `bad sprite hash in "${ref}"` };
+    }
+    return null;
+  }
+  if (ref.startsWith("./") || ref.startsWith("../") || ref.includes("..")) {
+    return {
+      path,
+      message: `local sprite path "${ref}" — CLI must upload + rewrite before deploy`,
+    };
+  }
+  if (ref.startsWith("/")) {
+    return { path, message: `sprite refs must be relative, got "${ref}"` };
+  }
+  return null;
+}
+
+function validateCustomPlot(
+  cp: CustomPlot,
+  index: number,
+  issues: ValidationIssue[],
+): void {
+  const prefix = `customPlots[${index}]`;
+  if (!cp.id || typeof cp.id !== "string") {
+    issues.push({ path: `${prefix}.id`, message: `missing id` });
+    return;
+  }
+  if (cp.id.includes(":")) {
+    issues.push({
+      path: `${prefix}.id`,
+      message: `id "${cp.id}" must not contain ":" (the "custom:" prefix is added automatically)`,
+    });
+  }
+  if (!cp.interior || !Array.isArray(cp.interior.spriteCandidates)) {
+    issues.push({ path: `${prefix}.interior`, message: `missing interior` });
+    return;
+  }
+  if (cp.interior.spriteCandidates.length === 0) {
+    issues.push({
+      path: `${prefix}.interior.spriteCandidates`,
+      message: `at least one interior sprite candidate required`,
+    });
+  }
+  for (const [i, ref] of cp.interior.spriteCandidates.entries()) {
+    const issue = validateSpriteRef(ref, `${prefix}.interior.spriteCandidates[${i}]`);
+    if (issue) issues.push(issue);
+  }
+  for (const [i, prop] of cp.interior.props.entries()) {
+    const issue = validateSpriteRef(prop.sprite, `${prefix}.interior.props[${i}].sprite`);
+    if (issue) issues.push(issue);
+  }
+  if (!Array.isArray(cp.variants) || cp.variants.length === 0) {
+    issues.push({ path: `${prefix}.variants`, message: `at least one variant required` });
+    return;
+  }
+  const variantIds = new Set<string>();
+  for (const [i, v] of cp.variants.entries()) {
+    const vprefix = `${prefix}.variants[${i}]`;
+    if (!v.id) {
+      issues.push({ path: `${vprefix}.id`, message: `missing variant id` });
+    } else if (variantIds.has(v.id)) {
+      issues.push({ path: `${vprefix}.id`, message: `duplicate variant id "${v.id}"` });
+    } else {
+      variantIds.add(v.id);
+    }
+    if (!Array.isArray(v.exteriorSpriteCandidates) || v.exteriorSpriteCandidates.length === 0) {
+      issues.push({
+        path: `${vprefix}.exteriorSpriteCandidates`,
+        message: `at least one exterior sprite candidate required`,
+      });
+    }
+    for (const [j, ref] of (v.exteriorSpriteCandidates ?? []).entries()) {
+      const issue = validateSpriteRef(ref, `${vprefix}.exteriorSpriteCandidates[${j}]`);
+      if (issue) issues.push(issue);
+    }
+  }
+}
+
 export function validatePlot(plot: Plot, manifest: Manifest): ValidationResult {
   const issues: ValidationIssue[] = [];
 
   if (plot.schemaVersion !== 1) {
     issues.push({ path: "schemaVersion", message: `unknown version ${plot.schemaVersion}` });
+  }
+
+  // Custom plots first, so building lookups can refer to them by id.
+  const customById = new Map<string, CustomPlot>();
+  for (const [i, cp] of (plot.customPlots ?? []).entries()) {
+    validateCustomPlot(cp, i, issues);
+    if (cp.id && !customById.has(cp.id)) customById.set(cp.id, cp);
+    else if (cp.id) {
+      issues.push({
+        path: `customPlots[${i}].id`,
+        message: `duplicate customPlot id "${cp.id}"`,
+      });
+    }
   }
 
   // Buildings
@@ -32,22 +141,40 @@ export function validatePlot(plot: Plot, manifest: Manifest): ValidationResult {
     }
     buildingIds.add(b.id);
 
-    const catalogPlot = getCatalogPlot(b.plotKey.replace(/-\d+$/, ""));
-    if (!catalogPlot) {
-      issues.push({ path: `${prefix}.plotKey`, message: `unknown plotKey "${b.plotKey}"` });
-      continue;
-    }
-    const variant = getVariant(b.variantId);
-    if (!variant) {
-      issues.push({ path: `${prefix}.variantId`, message: `unknown variantId "${b.variantId}"` });
-      continue;
-    }
-    const matches = catalogPlot.variants.some((v) => v.id === b.variantId);
-    if (!matches) {
-      issues.push({
-        path: `${prefix}.variantId`,
-        message: `variantId "${b.variantId}" does not belong to plot "${b.plotKey}"`,
-      });
+    const customId = customPlotId(b.plotKey);
+    if (customId) {
+      const cp = customById.get(customId);
+      if (!cp) {
+        issues.push({
+          path: `${prefix}.plotKey`,
+          message: `unknown custom plot "${b.plotKey}" — no matching customPlots entry`,
+        });
+        continue;
+      }
+      if (!cp.variants.some((v) => v.id === b.variantId)) {
+        issues.push({
+          path: `${prefix}.variantId`,
+          message: `variantId "${b.variantId}" does not belong to custom plot "${b.plotKey}"`,
+        });
+      }
+    } else {
+      const catalogPlot = getCatalogPlot(b.plotKey.replace(/-\d+$/, ""));
+      if (!catalogPlot) {
+        issues.push({ path: `${prefix}.plotKey`, message: `unknown plotKey "${b.plotKey}"` });
+        continue;
+      }
+      const variant = getVariant(b.variantId);
+      if (!variant) {
+        issues.push({ path: `${prefix}.variantId`, message: `unknown variantId "${b.variantId}"` });
+        continue;
+      }
+      const matches = catalogPlot.variants.some((v) => v.id === b.variantId);
+      if (!matches) {
+        issues.push({
+          path: `${prefix}.variantId`,
+          message: `variantId "${b.variantId}" does not belong to plot "${b.plotKey}"`,
+        });
+      }
     }
     if (b.tx < 0 || b.ty < 0 || b.tx + b.w > plot.world.w || b.ty + b.h > plot.world.h) {
       issues.push({ path: `${prefix}`, message: `building extends past world bounds` });

@@ -38,6 +38,7 @@ model User {
   npcs         Npc[]
   town         Town?
   suggestions  PlotSuggestion[]
+  sprites      Sprite[]
 
   @@index([email])
 }
@@ -264,6 +265,32 @@ model Npc {
 
   @@index([userId])
   @@index([userId, buildingId])
+}
+
+// User-uploaded sprite (PNG bytes for a CustomPlot exterior / interior /
+// prop). Content-addressed so repeat uploads of the same image are free.
+// Served by /api/sprites/<contentHash>.png with immutable cache headers;
+// the renderer hits that URL whenever a CustomPlot sprite ref is of the
+// form "sprite:<contentHash>".
+//
+// Scope is per-user so deleting an account cleans up the bytes without
+// affecting other towns; the (userId, contentHash) unique stops the
+// same town from storing duplicates.
+model Sprite {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentHash String
+  // PNG payload. Postgres TOAST handles out-of-line storage for the
+  // multi-KB range these end up at.
+  bytes       Bytes
+  width       Int
+  height      Int
+  byteSize    Int
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, contentHash])
+  @@index([userId])
 }
 
 // Queued plot/NPC change waiting for the player's approval. The events

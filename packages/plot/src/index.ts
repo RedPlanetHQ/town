@@ -1,6 +1,11 @@
 export * from "./types";
 export * from "./manifest";
 export { validatePlot, type ValidationResult, type ValidationIssue } from "./validate";
+export {
+  isUploadedSpriteRef,
+  uploadedSpriteHash,
+  resolveSpriteUrl,
+} from "./sprite";
 
 // Pre-baked guest plot. Built by `@town/plot-gen`'s `build-default` script
 // (seed="core", activeCount=6) and committed to ./default.json. The webapp

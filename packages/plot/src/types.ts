@@ -21,6 +21,56 @@ export interface TileRect extends TilePos {
   h: number;
 }
 
+/** A sprite reference inside a CustomPlot. Either:
+ *   • a catalog path — e.g. "exteriors/home/villa-1.png" (lives under
+ *     /sprites/catalog/) or a manifest entry id — verified against the
+ *     bundled catalog/manifest at validate time.
+ *   • an uploaded sprite ref — "sprite:<contentHash>" — served from
+ *     /api/sprites/<hash>.png. The CLI rewrites local "./foo.png" refs
+ *     into "sprite:<hash>" form during deploy after uploading bytes.
+ *
+ *  The server never sees raw local paths — by the time a CustomPlot is
+ *  persisted, every reference resolves through `resolveSpriteUrl`. */
+export type SpriteRef = string;
+
+/** One prop placed inside a CustomPlot's interior. Mirrors
+ *  `@town/catalog`'s `InteriorProp` shape but with `SpriteRef` semantics. */
+export interface CustomInteriorProp extends TilePos {
+  sprite: SpriteRef;
+}
+
+/** Interior shell + props for a CustomPlot. All variants of one
+ *  CustomPlot share this interior — the "one room, many doors" pattern. */
+export interface CustomInterior {
+  spriteCandidates: SpriteRef[];
+  props: CustomInteriorProp[];
+}
+
+/** Where the variant's NPC spawns inside the shared interior. */
+export interface CustomNpcPosition extends TilePos {
+  label: string;
+}
+
+/** One exterior variant of a CustomPlot. */
+export interface CustomVariant {
+  id: string;
+  exteriorSpriteCandidates: SpriteRef[];
+  npcPosition: CustomNpcPosition;
+}
+
+/** A user-defined plot. Mirrors `@town/catalog`'s `Plot` shape so the
+ *  effective catalog (catalog ∪ plot.customPlots) is uniform from the
+ *  generator's point of view. Buildings reference these via
+ *  `plotKey: "custom:<id>"`. */
+export interface CustomPlot {
+  /** Local id; the building's plotKey is "custom:<id>". */
+  id: string;
+  label: string;
+  category: Category;
+  interior: CustomInterior;
+  variants: CustomVariant[];
+}
+
 /** One building on the town map. `plotKey` + `variantId` together resolve
  *  to a `(Plot, Variant)` pair in the catalog. */
 export interface PlotBuilding extends TileRect {
@@ -85,4 +135,23 @@ export interface Plot {
   ponds: PlotPond[];
   decor: PlotDecor[];
   npcs: PlotNpc[];
+  /** User-defined plots. A `PlotBuilding.plotKey` of `"custom:<id>"`
+   *  resolves to one of these instead of an entry in `@town/catalog`. */
+  customPlots?: CustomPlot[];
+}
+
+/** Prefix used by every `PlotBuilding.plotKey` that resolves to a
+ *  `CustomPlot` instead of a catalog `Plot`. */
+export const CUSTOM_PLOT_PREFIX = "custom:";
+
+/** True for plotKeys that resolve to a CustomPlot. */
+export function isCustomPlotKey(plotKey: string): boolean {
+  return plotKey.startsWith(CUSTOM_PLOT_PREFIX);
+}
+
+/** Strip the "custom:" prefix; returns null if it isn't a custom key. */
+export function customPlotId(plotKey: string): string | null {
+  return plotKey.startsWith(CUSTOM_PLOT_PREFIX)
+    ? plotKey.slice(CUSTOM_PLOT_PREFIX.length)
+    : null;
 }

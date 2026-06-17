@@ -3,25 +3,33 @@
 //   GET  → { town: { id, slug, name } | null }
 //   POST { name, slug? } → { town: { id, slug, name } } on success;
 //        4xx with { error: 'slug-taken' | 'slug-invalid' | 'already-onboarded' }
+//
+// Accepts both the browser session cookie and a CORE PAT
+// (Authorization: Bearer <pat>), so `town init` can check ownership +
+// onboard a fresh town from the CLI without going through the web UI.
 
 import { NextResponse } from "next/server";
 
-import { getSessionFromCookie } from "@/lib/session";
+import { resolveUser } from "@/lib/auth-bearer";
 import { getTownByOwner, pickTown } from "@/lib/town";
 
-export async function GET() {
-  const row = await getSessionFromCookie();
-  if (!row) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+export async function GET(req: Request) {
+  const resolved = await resolveUser(req);
+  if (!resolved) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
 
-  const town = await getTownByOwner(row.user.id);
+  const town = await getTownByOwner(resolved.user.id);
   return NextResponse.json({
     town: town ? { id: town.id, slug: town.slug, name: town.name } : null,
   });
 }
 
 export async function POST(req: Request) {
-  const row = await getSessionFromCookie();
-  if (!row) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const resolved = await resolveUser(req);
+  if (!resolved) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
 
   let body: { name?: string; slug?: string };
   try {
@@ -35,7 +43,7 @@ export async function POST(req: Request) {
 
   try {
     const town = await pickTown({
-      ownerId: row.user.id,
+      ownerId: resolved.user.id,
       name: body.name,
       slug: body.slug,
     });

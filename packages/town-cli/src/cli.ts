@@ -2,9 +2,9 @@
 //
 // Commands:
 //   town login   Authenticate with CORE (saves a PAT to ~/.town/config.json).
-//   town init    Pull your current plot + NPCs into a local folder.
-//   town deploy  Push local edits back to the server.
-//   town dev     (future) Run a local preview of the plot.
+//   town init    Create a new town OR pull your existing one into a local
+//                folder named after the slug.
+//   town deploy  Push local town.json + customPlots + npcs back to the server.
 
 import { Command } from "commander";
 import { registerLogin } from "./commands/login.js";
