@@ -42,9 +42,20 @@ function blip(c: AudioContext, at: number, freq: number, dur: number) {
 // Quick two-note chime — E5 then G5 — for incoming DMs.
 export function playMessageDing(): void {
   const c = getCtx();
+  console.log("[sound] playMessageDing called", {
+    ctx: !!c,
+    state: c?.state,
+    currentTime: c?.currentTime,
+  });
   if (!c) return;
-  if (c.state === "suspended") c.resume().catch(() => {});
+  if (c.state === "suspended") {
+    console.log("[sound] resuming suspended AudioContext");
+    c.resume()
+      .then(() => console.log("[sound] resume() resolved, state=", c.state))
+      .catch((e) => console.warn("[sound] resume() rejected", e));
+  }
   const now = c.currentTime;
   blip(c, now, 659.25, 0.12);
   blip(c, now + 0.08, 783.99, 0.18);
+  console.log("[sound] scheduled blips at", now);
 }

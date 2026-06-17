@@ -384,12 +384,23 @@ export async function startRealtime({
           }
         | undefined
         | null;
-      if (!data || data.type !== "dm") return;
-      if (typeof data.fromKey !== "string" || !data.fromKey) return;
+      console.log(`${LOG} inbox publication`, data);
+      if (!data || data.type !== "dm") {
+        console.log(`${LOG} inbox publication ignored (bad type)`, data?.type);
+        return;
+      }
+      if (typeof data.fromKey !== "string" || !data.fromKey) {
+        console.log(`${LOG} inbox publication ignored (no fromKey)`);
+        return;
+      }
       // Don't ding for our own echoes — server doesn't publish to the
       // sender's inbox, but guard anyway in case multi-tab sessions
       // ever start cross-publishing.
-      if (data.fromKey === self?.participantKey) return;
+      if (data.fromKey === self?.participantKey) {
+        console.log(`${LOG} inbox publication ignored (self echo)`);
+        return;
+      }
+      console.log(`${LOG} dinging for inbox publication from`, data.fromKey);
       addPendingKey(data.fromKey);
       playMessageDing();
       showMessageNotification({
