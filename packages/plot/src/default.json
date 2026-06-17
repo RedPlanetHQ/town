@@ -13,6 +13,7 @@
       "plotKey": "home",
       "variantId": "home.modern-villa",
       "category": "HOME",
+      "groupChatEnabled": true,
       "tx": 32,
       "ty": 36,
       "w": 10,
@@ -23510,12 +23511,6 @@
       "spriteId": "mushroom-01"
     },
     {
-      "tx": 53,
-      "ty": 64,
-      "group": "stumps",
-      "spriteId": "stump-01"
-    },
-    {
       "tx": 61,
       "ty": 64,
       "group": "stumps",
@@ -23532,12 +23527,6 @@
       "ty": 65,
       "group": "rocks",
       "spriteId": "rock-01"
-    },
-    {
-      "tx": 52,
-      "ty": 65,
-      "group": "stumps",
-      "spriteId": "stump-01"
     },
     {
       "tx": 71,

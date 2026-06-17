@@ -90,6 +90,14 @@ export function getActiveTownSlug(): string | null {
   return activeSlug;
 }
 
+// Expose the singleton Centrifuge instance so side features (e.g.
+// group chat) can attach extra subscriptions without opening a second
+// WebSocket connection. Returns null before startRealtime() runs or
+// after stop() — callers must handle the null case.
+export function getCentrifuge(): Centrifuge | null {
+  return centrifuge;
+}
+
 // Module-level accessors so the kaplay scene (which isn't React) can
 // reach the live state without holding a handle.
 export function publishLocalPosition(input: {

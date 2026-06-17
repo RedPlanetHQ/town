@@ -103,6 +103,12 @@ export interface PlotBuilding extends TileRect {
   /** Resolved sprite path (relative to /sprites/). Filled in by the
    *  generator so the renderer doesn't have to re-resolve. */
   exteriorSprite: string;
+  /** When true, the interior of this building hosts a multi-party group
+   *  chat (humans + NPCs in the building) reachable with the [G]
+   *  keystroke. Per-building opt-in — defaults to false on every other
+   *  building so the feature stays scoped to the houses the owner has
+   *  actually turned it on for. Single source of truth, no env flag. */
+  groupChatEnabled?: boolean;
 }
 
 /** A 2-wide bezier road from one building to another. Tiles is the

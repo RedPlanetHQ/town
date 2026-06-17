@@ -13,6 +13,7 @@ import { generatePlot } from "@town/plot-gen";
 import type { Manifest, Plot } from "@town/plot";
 
 import { prisma } from "./db";
+import { getNpcTemplate } from "./npc-templates";
 
 // Load + cache the extras manifest. It's a small JSON shipped under the
 // webapp's public dir; the server reads it once.
@@ -68,63 +69,14 @@ export async function getPlotForUser(userId: string): Promise<{ plot: Plot; vers
   return { plot, version: row.version };
 }
 
-// Role-specific defaults per building category. The CORE founder is NOT
-// here — he's a system fixture loaded from apps/web/src/data/system-npcs/
-// and rendered at the store regardless of the user's plot. Every catalog
-// plot id should have an entry so a `town deploy` of any plot shape
-// yields a functioning NPC roster.
-const SEED_TEMPLATES: Record<
-  string,
-  { description: string; prompt: string }
-> = {
-  home: {
-    description:
-      "Butler of the world. Greets you when you come home and remembers what's on your mind.",
-    prompt:
-      "You are the butler and world runner of this town. You greet the player warmly when they walk in, ask after their day, and reference recent CORE activity when context is provided. Stay in character, never break the fourth wall, and keep replies under three sentences.",
-  },
-  library: {
-    description:
-      "Caretaker of the library. Knows what's worth reading next.",
-    prompt:
-      "You are the keeper of the town library. You suggest reading, remember the player's prior summaries, and speak quietly but warmly. Stay in character; keep replies under three sentences.",
-  },
-  store: {
-    description:
-      "Shopkeeper at the corner store. Tracks the market and small talk.",
-    prompt:
-      "You are the shopkeeper at the town store. You greet the player, mention what's in stock, and keep banter friendly. Stay in character; keep replies under three sentences.",
-  },
-  office: {
-    description:
-      "Coworker at the office. Keeps tabs on what the resident is shipping.",
-    prompt:
-      "You are a coworker at the town office. You greet the player, ask what they're heads-down on today, and chat about ongoing projects when context is provided. Stay in character; keep replies under three sentences.",
-  },
-  workshop: {
-    description:
-      "Maker at the workshop. Keeps the tools sharp and the shelves stocked.",
-    prompt:
-      "You are the maker at the town workshop. You greet the player, ask what they're building, and offer a steady hand. Stay in character; keep replies under three sentences.",
-  },
-  gym: {
-    description:
-      "Coach at the gym. Tracks the resident's training streaks.",
-    prompt:
-      "You are the coach at the town gym. You greet the player, ask about their training, and keep the energy upbeat without being pushy. Stay in character; keep replies under three sentences.",
-  },
-  studio: {
-    description:
-      "Studio host. Keeps the practice space ready for the work that matters.",
-    prompt:
-      "You are the studio host. You greet the player, ask what they're working on, and respect creative focus. Stay in character; keep replies under three sentences.",
-  },
-};
-
 /** Seed one user-owned NPC per slot in the freshly-generated plot. Walks
  *  `plot.npcs[]` (which already has one entry per variant slot — see
  *  `@town/plot-gen`) and writes a default Npc row for each. Buildings
  *  whose plotKey has no template still skip cleanly.
+ *
+ *  Template source: apps/web/src/data/npc-templates/<plotKey>.mdx. The MDX
+ *  carries the description, system prompt, and capability grants
+ *  (permissions JSON) for the archetype.
  *
  *  Name strategy: the default slot ("") uses the per-plotKey name pool
  *  (so HOME at "home" gets Hudson, the second instance gets Hattie,
@@ -144,14 +96,14 @@ export async function seedNpcs(userId: string, plot: Plot): Promise<void> {
     name: string;
     description: string;
     prompt: string;
+    permissions: object;
   }> = [];
   const buildingsById = new Map(plot.buildings.map((b) => [b.id, b]));
   for (const slot of plot.npcs) {
     const building = buildingsById.get(slot.buildingId);
     if (!building) continue;
-    const base = building.plotKey.replace(/-\d+$/, "");
-    const tmpl = SEED_TEMPLATES[base];
-    if (!tmpl) continue;
+    const template = getNpcTemplate(building.plotKey);
+    if (!template) continue;
     const slotId = slot.slotId ?? "";
     const name =
       slotId === ""
@@ -162,8 +114,9 @@ export async function seedNpcs(userId: string, plot: Plot): Promise<void> {
       buildingId: building.id,
       slotId,
       name,
-      description: tmpl.description,
-      prompt: tmpl.prompt,
+      description: template.description,
+      prompt: template.prompt,
+      permissions: template.permissions as object,
     });
   }
   if (data.length === 0) return;

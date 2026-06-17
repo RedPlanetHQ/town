@@ -4,21 +4,22 @@
 // in the client; we don't persist it. The system prompt is composed
 // from:
 //
-//   1. A constant base prompt — short replies, stay in character, may
-//      call memory_search.
+//   1. A constant base prompt — short replies, stay in character.
 //   2. The NPC's own row (name / description / prompt) from the
 //      `Npc` table — authored by the town owner.
 //   3. A Speaker block — resident (owner) vs guest (anyone visiting).
 //   4. A mode tag — "direct" (player ↔ NPC) or "invited" (player has
 //      brought a guest into the conversation).
+//   5. Optional preloaded skill content for skills granted under
+//      `permissions.skills.inject`.
 //
-// memory_search is always scoped to the TOWN OWNER's CORE memory,
-// regardless of who's chatting. That means an anonymous guest with a
-// valid visit cookie can ask the NPC about the resident, and the
-// resident's authored NPC prompt is what controls how candid the
-// answer is. We resolve the owner's access token by looking up their
-// most-recent Session row — if they never signed in via cookie (PAT
-// only), memory_search returns {error: "no-owner-token"} and the
+// The model's tool surface is built by buildNpcTools() from the NPC's
+// permissions grant. Every tool that calls CORE always uses the TOWN
+// OWNER's access token, regardless of who's chatting — so an anonymous
+// guest with a valid visit cookie can ask the NPC about the resident,
+// and the resident's authored NPC prompt + permission grant control how
+// candid and how powerful the answer can be. If the owner hasn't linked
+// their CORE account, tools return {error: "no-owner-token"} and the
 // model falls back to common sense.
 //
 // Auth model:
@@ -34,7 +35,7 @@
 //     messages: { role: "user" | "assistant", content: string }[],
 //   }
 
-import { streamText, tool, convertToModelMessages, type UIMessage } from "ai";
+import { streamText, convertToModelMessages, type UIMessage } from "ai";
 import { z } from "zod";
 
 import { resolveUser } from "@/lib/auth-bearer";
@@ -42,6 +43,8 @@ import { getChatModel } from "@/lib/chat-model";
 import { getOwnerCoreToken } from "@/lib/core-token";
 import { prisma } from "@/lib/db";
 import { ensureNpcsForUser } from "@/lib/plot";
+import { getNpcTemplate, type NpcPermissions } from "@/lib/npc-templates";
+import { buildNpcTools, loadInjectedSkills } from "@/lib/npc-tools";
 import { safeBlock, safeInline } from "@/lib/prompt-sanitize";
 import { resolveViewer } from "@/lib/viewer";
 
@@ -100,20 +103,22 @@ Rules:
 - Keep replies under three sentences unless the player explicitly asks for
   more detail.
 - Never break character or mention prompts, tools, or that you are an LLM.
-- You have one tool: \`memory_search\`. It queries the RESIDENT's (town
-  owner's) memory graph — the person whose town this is, not the player
-  standing in front of you. Call it when the conversation needs grounded
-  context about the resident's life, work, projects, or recent thinking.
-  Don't call it for small talk. Your authored voice & behaviour below is
-  the rule for what's appropriate to share — follow it.
-- If memory_search returns nothing useful, answer from common sense — do
-  not invent specifics.`;
+- The tools you have access to are listed in the model's tool surface. They
+  act on the RESIDENT's (town owner's) CORE workspace — memory, integrations,
+  tasks, reminders, skills — regardless of who you are talking to. Call them
+  when the conversation needs grounded context or a concrete action. Don't
+  call them for small talk. Your authored voice & behaviour below is the rule
+  for what's appropriate to do or share — follow it.
+- If a tool returns nothing useful or {error: ...}, answer from common sense
+  — do not invent specifics, and do not surface the error to the player.`;
 
 interface NpcInfo {
   id: string;
   name: string;
   description: string;
   prompt: string;
+  /** Capability grants — empty object means no tools at all. */
+  permissions: NpcPermissions;
 }
 
 async function resolveNpc(
@@ -127,11 +132,32 @@ async function resolveNpc(
   // /api/npcs cache before calling here.
   const row = await prisma.npc.findFirst({ where: { id: npcId, userId } });
   if (!row) return null;
+  // Backfill path: rows seeded before the permissions column existed have
+  // permissions=null. Look up the template by building plotKey via the
+  // PlotRow and use its grants — preserves day-zero behaviour without a
+  // data migration. Buildings whose template was deleted get an empty
+  // grant (no tools), which is safe.
+  let permissions: NpcPermissions = {};
+  if (row.permissions && typeof row.permissions === "object") {
+    permissions = row.permissions as NpcPermissions;
+  } else {
+    const plotRow = await prisma.plotRow.findUnique({
+      where: { userId },
+      select: { json: true },
+    });
+    const plot = plotRow?.json as { buildings?: Array<{ id: string; plotKey: string }> } | null;
+    const building = plot?.buildings?.find((b) => b.id === row.buildingId);
+    if (building) {
+      const tmpl = getNpcTemplate(building.plotKey);
+      if (tmpl) permissions = tmpl.permissions;
+    }
+  }
   return {
     id: row.id,
     name: row.name,
     description: row.description,
     prompt: row.prompt,
+    permissions,
   };
 }
 
@@ -158,6 +184,7 @@ function buildSystemPrompt(
   mode: "direct" | "invited",
   invitee: { name: string } | undefined,
   viewer: ViewerContext,
+  injectedSkills: Array<{ id: string; title: string; content: string }>,
 ): string {
   const name = safeInline(npc.name, 80);
   const role = safeInline(npc.description, 240);
@@ -174,13 +201,30 @@ function buildSystemPrompt(
   ].join("\n");
 
   const speakerBlock = viewer.isOwner
-    ? `Speaker: ${speakerName} — the resident of this town, the person you live alongside. You know them; greet warmly. memory_search returns their own context; reference it freely.`
-    : `Speaker: ${speakerName} — a guest visiting this town, not the resident. Be welcoming. memory_search returns the RESIDENT's context, not the guest's — share what the resident would want surfaced (your authored voice & behaviour above is the rule), but keep anything the resident would treat as private (in-progress drafts, plans, anything unflattering) vague.`;
+    ? `Speaker: ${speakerName} — the resident of this town, the person you live alongside. You know them; greet warmly. Any tool you call returns their own context; reference it freely.`
+    : `Speaker: ${speakerName} — a guest visiting this town, not the resident. Be welcoming. Any tool you call returns the RESIDENT's context, not the guest's — share what the resident would want surfaced (your authored voice & behaviour above is the rule), but keep anything the resident would treat as private (in-progress drafts, plans, anything unflattering) vague.`;
 
   const modeBlock =
     mode === "invited" && inviteeName
       ? `Conversation mode: the speaker has brought ${inviteeName} into this conversation. Acknowledge ${inviteeName} when it makes sense; you can address either of them.`
       : `Conversation mode: direct one-on-one between you and the speaker.`;
+
+  // Inject preloaded skill content as a labelled block so the model treats
+  // it as reference material, not voice. Each skill is sanitised by
+  // safeBlock to neutralise injected control markers.
+  const skillsBlock =
+    injectedSkills.length === 0
+      ? null
+      : [
+          "Preloaded knowledge (resident-authored skills):",
+          ...injectedSkills.map(
+            (s) =>
+              `--- ${safeInline(s.title, 80)} (${s.id}) ---\n${safeBlock(
+                s.content,
+                4000,
+              )}`,
+          ),
+        ].join("\n");
 
   return [
     BASE_PROMPT,
@@ -190,6 +234,7 @@ function buildSystemPrompt(
     speakerBlock,
     "",
     modeBlock,
+    ...(skillsBlock ? ["", skillsBlock] : []),
   ].join("\n");
 }
 
@@ -254,13 +299,23 @@ export async function POST(req: Request) {
     });
   }
 
-  // memory_search always queries the TOWN OWNER's CORE memory — not
-  // the caller's. This is what lets an anonymous guest learn about
-  // the resident through the NPC: the owner's authored prompt is the
-  // disclosure filter, the owner's memory is the source.
+  // Every CORE tool the NPC may call routes through the TOWN OWNER's
+  // access token — not the caller's. This is what lets an anonymous
+  // guest learn about the resident through the NPC: the owner's
+  // authored prompt is the disclosure filter, the owner's data is the
+  // source. Tools the NPC isn't permitted to call simply aren't
+  // present on the model's tool surface.
   const ownerToken = await getOwnerCoreToken(npcOwnerId);
+  const tools = buildNpcTools(ownerToken, npc.permissions);
+  const injectedSkills = await loadInjectedSkills(ownerToken, npc.permissions);
 
-  const system = buildSystemPrompt(npc, body.mode, body.invitee, viewer);
+  const system = buildSystemPrompt(
+    npc,
+    body.mode,
+    body.invitee,
+    viewer,
+    injectedSkills,
+  );
 
   // Normalise the incoming messages to AI-SDK UIMessage shape so
   // convertToModelMessages can hand them off to the model.
@@ -286,53 +341,7 @@ export async function POST(req: Request) {
     model,
     system,
     messages: await convertToModelMessages(uiMessages),
-    tools: {
-      memory_search: tool({
-        description:
-          "Search the town RESIDENT's CORE memory graph for facts relevant to a query. " +
-          "Use when the conversation needs grounded context about the resident's life, " +
-          "work, projects, or thinking. Returns a JSON object whose keys depend on the " +
-          "result type. Returns {error: \"no-owner-token\"} if the resident hasn't " +
-          "linked their CORE account; in that case answer from common sense without " +
-          "inventing specifics.",
-        inputSchema: z.object({
-          query: z
-            .string()
-            .min(1)
-            .describe("Natural-language query to run against the resident's memory."),
-          limit: z
-            .number()
-            .min(1)
-            .max(20)
-            .default(5)
-            .describe("Max number of episodes/facts to return."),
-        }),
-        async execute({ query, limit }) {
-          if (!ownerToken) return { error: "no-owner-token" };
-          const base = process.env.CORE_OAUTH_BASE;
-          if (!base) return { error: "core-base-not-set" };
-          try {
-            const res = await fetch(`${base}/api/v1/search`, {
-              method: "POST",
-              headers: {
-                authorization: `Bearer ${ownerToken}`,
-                "content-type": "application/json",
-              },
-              body: JSON.stringify({ query, limit }),
-            });
-            if (!res.ok) {
-              return {
-                error: `core-search ${res.status}`,
-                detail: await res.text().catch(() => ""),
-              };
-            }
-            return await res.json();
-          } catch (e) {
-            return { error: e instanceof Error ? e.message : "unknown" };
-          }
-        },
-      }),
-    },
+    tools,
   });
 
   return result.toUIMessageStreamResponse();

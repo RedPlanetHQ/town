@@ -150,6 +150,30 @@ export function scatterDecor(input: DecorInput): PlotDecor[] {
   const mushrooms = manifest.mushrooms ?? [];
   const scatterRocks = manifest.rocks ?? [];
   const stumps = manifest.stumps ?? [];
+  // Stumps block movement (see overworld-plot.ts's blocked-tile pass), so
+  // any tile inside their footprint must be safe to walk away from. The
+  // canopy-bottom check below uses (x+0.5, y+1.5) which is fine for the
+  // ORIGIN tile, but a multi-tile stump can still reach into a building's
+  // clearing on tiles the origin check doesn't cover. We therefore reject
+  // the stump up front if any tile of its full footprint sits in any
+  // building's clearing — that's the only place those tiles need to be
+  // walkable. Doors live at the south edge of the footprint, so this is
+  // the failure mode that prevents entering a building.
+  function stumpFootprintTouchesClearing(
+    sx: number,
+    sy: number,
+    tileW: number,
+    tileH: number,
+  ): boolean {
+    for (let dy = 0; dy < tileH; dy++) {
+      for (let dx = 0; dx < tileW; dx++) {
+        if (inAnyClearing(buildings, sx + dx + 0.5, sy + dy + 0.5)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
   for (let y = 0; y < FOREST_Y_MAX; y++) {
     for (let x = 0; x < FOREST_X_MAX; x++) {
       const key = x + "," + y;
@@ -160,7 +184,9 @@ export function scatterDecor(input: DecorInput): PlotDecor[] {
         const sh = hash32("stump::" + seed + "::" + x + "::" + y);
         if (sh % 50 === 0) {
           const stump = stumps[sh % stumps.length]!;
-          out.push({ tx: x, ty: y, group: "stumps", spriteId: stump.id });
+          if (!stumpFootprintTouchesClearing(x, y, stump.tileW, stump.tileH)) {
+            out.push({ tx: x, ty: y, group: "stumps", spriteId: stump.id });
+          }
         }
       }
       if (mushrooms.length) {

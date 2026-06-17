@@ -264,6 +264,14 @@ model Npc {
   description String
   // System prompt fed to the LLM when the player chats with this NPC.
   prompt      String
+  // Capability grants — what CORE tools this NPC may invoke during chat.
+  // Shape mirrors NpcPermissions in apps/web/src/lib/npc-templates.ts:
+  //   { integrations: [{slug, actions?}], core: {tasks?, memory_search?},
+  //     skills: {inject?, callable?} }
+  // Null is treated as "no tools" — even memory_search must be granted.
+  // seedNpcs() populates this from the MDX template; users can edit it
+  // later for per-instance customisation.
+  permissions Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -325,4 +333,31 @@ model PlotSuggestion {
 
   @@index([userId, status])
   @@index([userId, createdAt])
+}
+
+// Per-house group chat message log. One row per posted message (human
+// or NPC). `channelId` is the Centrifugo room channel — see
+// features/group-chat/server/channel.ts (`roomChannel`) for the wire
+// format; the same string keys live messages and the history backfill
+// query.
+//
+// Authors:
+//   • Human posts → authorKey = "user:<userId>" / "guest:<guestId>"
+//     (same shape Conversation already uses), isNpc = false.
+//   • NPC posts   → authorKey = "npc:<npcId>", isNpc = true.
+//
+// Retention: the history endpoint only ever returns rows from the
+// last hour (HISTORY_WINDOW_MS in types.ts). Older rows are
+// invisible to readers; a periodic sweeper can purge them later if
+// storage matters — none for v1.
+model GroupMessage {
+  id         String   @id @default(cuid())
+  channelId  String
+  authorKey  String
+  authorName String
+  isNpc      Boolean  @default(false)
+  text       String
+  createdAt  DateTime @default(now())
+
+  @@index([channelId, createdAt])
 }

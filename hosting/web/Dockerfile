@@ -47,4 +47,10 @@ ENV NODE_ENV=production
 ENV PORT=3000
 COPY --from=build /app /app
 EXPOSE 3000
-CMD ["pnpm", "--filter", "@town/web", "start"]
+# Apply any pending Prisma migrations against DATABASE_URL before booting
+# Next. `migrate deploy` is the production-safe runner: applies pending
+# migrations only, never prompts, never resets the DB. We call prisma
+# directly (not via the @town/db `db:deploy` script) because that script
+# wraps in dotenv-cli -e ../../.env, and the container loads env vars from
+# docker-compose, not a file.
+CMD ["sh", "-c", "pnpm --filter @town/db exec prisma migrate deploy --schema=./prisma/schema.prisma && pnpm --filter @town/web start"]

@@ -35,6 +35,7 @@ import { RemoteCards } from "./RemoteCards";
 import { VisitorHud } from "./VisitorHud";
 import { PALETTE } from "../game/config";
 import { ui } from "./store";
+import { GroupChatPrompt, GroupChatSurface } from "../features/group-chat";
 
 // The mount point: a canvas owned by React, populated by kaplay in useEffect,
 // and a sibling overlay layer for the React-rendered UI (HUD, prompt, panels).
@@ -300,6 +301,15 @@ export function TownGame(props: TownGameProps = {}) {
           otherName={dm.otherName}
         />
       ) : null}
+
+      {/* Group chat — non-modal Twitch-style overlay + floating [G]
+          prompt. Both internally gate on `groupChatStore` state, which
+          stays null until the player walks into a building whose
+          `groupChatEnabled` flag is on. Deleting these two lines + the
+          features/group-chat folder + the building flag removes the
+          feature. */}
+      <GroupChatPrompt />
+      <GroupChatSurface />
 
       {/* Bottom-right CTA — visitor only. Pitches the invitee on
           building their own town; opens town.getcore.me in a new tab

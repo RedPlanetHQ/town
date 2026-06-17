@@ -6,7 +6,11 @@ import { attachRemotePlayers } from "../entities/remotePlayer";
 import { getSession, logout, startLogin } from "../auth";
 import { GUEST_CTA_KEY, openGuestCta } from "../guestCta";
 import { getNpcByBuildingAndSlot } from "../npcs";
-import { publishLocalPosition, setLocalScene } from "../realtime";
+import {
+  getActiveTownSlug,
+  publishLocalPosition,
+  setLocalScene,
+} from "../realtime";
 import { ui } from "../../ui/store";
 import {
   getCachedPlot,
@@ -14,6 +18,10 @@ import {
   isViewerOwner,
 } from "../plotClient";
 import { getWorkspace } from "../workspace";
+import {
+  isGroupChatOverlayOpen,
+  mountGroupChatForScene,
+} from "../../features/group-chat";
 
 // ===========================================================================
 // Interior scene — one generic scene used for all four buildings.
@@ -1056,6 +1064,23 @@ export function registerInteriorScene(k: KAPLAYCtx) {
     const sceneId = `interior:${opts.building}`;
     setLocalScene(sceneId);
 
+    // Per-house group chat. Mount is a no-op when the building didn't
+    // opt in (PlotBuilding.groupChatEnabled). Registers the [G]
+    // keystroke, publishes "we're in a group-chat-ready house" for the
+    // floating prompt, and tears itself down on scene leave so walking
+    // back to the overworld auto-closes the overlay.
+    const groupChatSlug =
+      getViewerTownSlug() ?? getActiveTownSlug() ?? null;
+    if (groupChatSlug && myBuilding) {
+      mountGroupChatForScene({
+        k,
+        slug: groupChatSlug,
+        buildingId: myBuilding.id,
+        buildingLabel: myBuilding.label || spec.title,
+        enabled: myBuilding.groupChatEnabled === true,
+      });
+    }
+
     const onArrive = (tile: { tx: number; ty: number }) => {
       if (tile.tx === spec.exit.tx && tile.ty === spec.exit.ty) {
         // Route back to the plot-driven overworld (the new default). The
@@ -1199,6 +1224,16 @@ export function registerInteriorScene(k: KAPLAYCtx) {
         return;
       }
 
+      // While the group-chat overlay is open, suppress NPC SPACE
+      // prompts so the player can't accidentally start a 1-1 chat on
+      // top of an open room. Non-NPC interactables (panels, desks)
+      // still show their prompt — only NPCs are gated. The bottom-
+      // right group-chat panel hints how to close it (ESC or G).
+      if (it.onLeave && isGroupChatOverlayOpen()) {
+        ui.setPrompt(null);
+        return;
+      }
+
       ui.setPrompt({ label: resolveLabel(it), accent: accentFor(it) });
     });
 
@@ -1215,6 +1250,12 @@ export function registerInteriorScene(k: KAPLAYCtx) {
       // last press, or the guest CTA), let its window-level listener
       // advance it. Don't re-open the greeting on top of itself.
       if (it.onLeave && ui.getState().dialogue) return;
+
+      // Block NPC interactions while the group-chat overlay is open —
+      // the player has to close the room first (ESC or G). Same gate
+      // as the prompt suppression above so the UX is symmetric: no
+      // prompt, no trigger. Non-NPC interactables (panels) still fire.
+      if (it.onLeave && isGroupChatOverlayOpen()) return;
 
       if (it.onTrigger) {
         if (it.onLeave) activeLeaveKey = it.key;

@@ -21,7 +21,9 @@
 #   cd hosting && cp .env.example .env   # fill in the secrets + PUBLIC_HOST
 #   docker compose up -d
 #   docker compose logs -f caddy         # watch the cert acquire
-#   docker compose exec web pnpm --filter @town/db db:migrate
+# The web container applies pending Prisma migrations on startup
+# (`prisma migrate deploy` chained into the CMD), so no manual migrate
+# step is needed after boot.
 #
 # Centrifugo-only against a host-local Redis (dev convenience):
 #   docker compose up -d --no-deps centrifugo

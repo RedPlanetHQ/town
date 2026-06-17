@@ -163,15 +163,20 @@ export function Dm({
         setMessages((prev) =>
           prev.some((p) => p.id === message.id) ? prev : [...prev, message],
         );
-        setDraft("");
+        // Only clear the draft if the player hasn't started a new
+        // message since they hit send. The input stays enabled during
+        // the round-trip so they can keep typing; we don't want to
+        // wipe what they just typed.
+        setDraft((cur) => (cur.trim() === text ? "" : cur));
       }
     } catch {
       setError("Network error.");
     } finally {
       setSending(false);
-      // The input was `disabled={sending}` while in-flight, which makes
-      // the browser drop focus. Put it back so the player can keep
-      // typing without reaching for the mouse.
+      // When the player clicks Send (instead of pressing Enter), focus
+      // moves to the button — return it to the input so they don't
+      // have to reach for the mouse to type the next message. rAF
+      // defers until after React commits the post-send state.
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }
@@ -248,7 +253,10 @@ export function Dm({
             placeholder="Say something…"
             maxLength={2000}
             className="nb-tile flex-1 bg-paper px-2 py-1 text-sm font-bold text-ink outline-none"
-            disabled={sending}
+            // Intentionally NOT disabled while sending. Browsers blur a
+            // disabled input, which kills focus mid-round-trip. The
+            // Enter handler + Send button both gate on `sending`, so
+            // double-submit is already prevented.
             autoFocus
           />
           <button

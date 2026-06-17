@@ -34,6 +34,13 @@
         "allow_publish_for_client": false,
         "history_size": 20,
         "history_ttl": "1h"
+      },
+      {
+        "_comment": "Per-house group chat room. Backfill is served from Postgres (last hour of GroupMessage rows), so history_size stays 0 — don't bump it for symmetry with dm/user. Subscribe is token-gated by features/group-chat/server/history.ts.",
+        "name": "room",
+        "allow_subscribe_for_client": true,
+        "allow_publish_for_client": false,
+        "history_size": 0
       }
     ]
   }
