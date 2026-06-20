@@ -45,7 +45,7 @@ import { z } from "zod";
 
 import { resolveUser } from "@/lib/auth-bearer";
 import { getChatModel } from "@/lib/chat-model";
-import { ingestNpcTurn } from "@/lib/core-memory";
+import { ingestNpcTurn, npcChatSessionId } from "@/lib/core-memory";
 import { getOwnerCoreToken } from "@/lib/core-token";
 import { prisma } from "@/lib/db";
 import { ensureNpcsForUser } from "@/lib/plot";
@@ -427,6 +427,15 @@ export async function POST(req: Request) {
         speakerText,
         assistantText,
         source: "town:npc-chat",
+        // Pair every (speaker, NPC, 24h-window) under one CORE
+        // sessionId so multi-turn chats link as one conversation
+        // in the resident's graph + collapse into a single
+        // compacted Document instead of N standalone episodes.
+        // Falls back gracefully if subjectKey is missing (legacy
+        // owner-only path without townSlug).
+        ...(visitorSubjectKey
+          ? { sessionId: npcChatSessionId(npc!.id, visitorSubjectKey) }
+          : {}),
         metadata: {
           npcId: npc!.id,
           mode: body.mode,

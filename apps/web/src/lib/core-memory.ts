@@ -30,6 +30,29 @@ const CORE_BASE_ENV = "CORE_OAUTH_BASE";
 // will 400.
 const MIN_EPISODE_BODY = 20;
 
+// One sessionId rolls over per 24h. CORE uses sessionId to (a) link
+// episodes into one conversation for graph resolution
+// (getSessionEpisodes), (b) flip the first-turn "memory.added" signal
+// to "memory.updated" on subsequent turns, and (c) collapse the
+// conversation into a single compacted Document row keyed
+// (sessionId, workspaceId). A 24h bucket keeps turns inside one
+// day-long chat with the same NPC tied together without needing any
+// server-side state.
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Stable session id for "this user/guest talking with this NPC inside
+ *  one 24h window". Same inputs + same UTC day → same id. Crosses to a
+ *  new id at the next UTC day boundary. Caller passes `now` only in
+ *  tests; production reads Date.now(). */
+export function npcChatSessionId(
+  npcId: string,
+  subjectKey: string,
+  now: number = Date.now(),
+): string {
+  const dayBucket = Math.floor(now / DAY_MS);
+  return `town-npc:${npcId}:${subjectKey}:${dayBucket}`;
+}
+
 export interface IngestNpcTurnInput {
   /** Owner's CORE access token. null → owner hasn't linked CORE, skip. */
   ownerToken: string | null;
