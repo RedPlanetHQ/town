@@ -322,13 +322,12 @@ export function TownGame(props: TownGameProps = {}) {
         <ActivityFeed townSlug={(ownerSlug ?? visitorSlug)!} />
       ) : null}
 
-      {/* Bottom-LEFT stack — visitor pitch on top (visitor mode only)
-          + a "Town from core" attribution underneath that ALWAYS shows
-          for everyone. Sits left so the bottom-right corner stays
-          clear for the group chat overlay and the 1-1 DM panel. */}
-      <div className="pointer-events-auto absolute left-4 bottom-4 z-30 flex flex-col items-start gap-2">
-        {isVisitor ? <BuildYourOwnTownCta /> : null}
-        <TownFromCoreCredit />
+      {/* Bottom-left tile — combines the visitor pitch (only in visitor
+          mode) with the always-on "Town from core" attribution into a
+          single card. Sits left so the bottom-right corner stays clear
+          for the group chat overlay and the 1-1 DM panel. */}
+      <div className="pointer-events-auto absolute left-4 bottom-4 z-30">
+        <BottomLeftCard showBuildCta={isVisitor} />
       </div>
 
       {bootVisible ? (
@@ -402,11 +401,6 @@ function PopulationBadge({
               className="flex items-center gap-1 text-[12px] font-bold uppercase tracking-wider hover:opacity-70"
               style={{ color: feedOpen ? "#b58900" : "inherit" }}
             >
-              <span
-                aria-hidden
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ background: "#f0e442" }}
-              />
               Feed
             </button>
           </>
@@ -421,63 +415,64 @@ function PopulationBadge({
   );
 }
 
-// Bottom-left attribution shown to EVERYONE (owners + visitors). Two
-// inline links into the open-source repos — "Town" is the engine itself,
-// "core" is the memory layer that powers the NPCs. Keeps the credit
-// quiet (text-only, low opacity) so it doesn't compete with the visitor
-// CTA stacked above it.
-function TownFromCoreCredit() {
+// Bottom-left card. Two segments inside one tile:
+//   • Visitor pitch (visitor mode only): logo + "Build your own town"
+//     opening town.getcore.me in a new tab.
+//   • "Town from core" attribution — two open-source links — that's
+//     ALWAYS shown so credit travels with every deployed instance.
+// Owners see just the attribution row.
+function BottomLeftCard({ showBuildCta }: { showBuildCta: boolean }) {
   return (
     <div
-      className="nb-card px-3 py-2 text-base font-bold leading-tight text-ink"
+      className="nb-card flex flex-col items-start"
       style={{ background: "#ffffff" }}
       title="Open-source projects from RedPlanet HQ"
     >
-      <a
-        href="https://github.com/redplanethq/town"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline-offset-2 hover:underline"
+      {showBuildCta ? (
+        <a
+          href="https://town.getcore.me"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex w-full items-center gap-2 px-3 py-2 hover:bg-black/5"
+          title="Start your own town at town.getcore.me"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/town_logo_dark.svg"
+            alt=""
+            aria-hidden
+            className="h-4 w-4 shrink-0"
+          />
+          <span className="text-[12px] font-bold leading-tight text-ink">
+            Build your own town
+          </span>
+        </a>
+      ) : null}
+      <div
+        className={
+          "px-3 py-2 text-[12px] font-bold leading-tight text-ink" +
+          (showBuildCta ? " border-t border-ink/10 opacity-80" : "")
+        }
       >
-        Town
-      </a>
-      <span className="mx-1 opacity-60">from</span>
-      <a
-        href="https://github.com/redplanethq/core"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline-offset-2 hover:underline"
-      >
-        core
-      </a>
+        <a
+          href="https://github.com/redplanethq/town"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline-offset-2 hover:underline"
+        >
+          Town
+        </a>
+        <span className="mx-1 opacity-60">from</span>
+        <a
+          href="https://github.com/redplanethq/core"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline-offset-2 hover:underline"
+        >
+          core
+        </a>
+      </div>
     </div>
-  );
-}
-
-// Bottom-left "Build your own town" CTA shown only on visitor view.
-// Opens town.getcore.me in a new tab so the invitee can start their
-// own town without losing the visit they're already in.
-function BuildYourOwnTownCta() {
-  return (
-    <a
-      href="https://town.getcore.me"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="nb-card flex items-center gap-2 px-3 py-1 text-left"
-      style={{ background: "#ffffff" }}
-      title="Start your own town at town.getcore.me"
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/town_logo_dark.svg"
-        alt=""
-        aria-hidden
-        className="h-4 w-4 shrink-0"
-      />
-      <span className="text-[12px] font-bold leading-tight text-ink">
-        Build your own town
-      </span>
-    </a>
   );
 }
 
