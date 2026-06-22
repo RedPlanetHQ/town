@@ -14,10 +14,6 @@ export function GroupChatPrompt() {
   const state = useGroupChatState();
   if (!state.currentHouse) return null;
   if (state.open) return null;
-  // Only surface when at least one OTHER player is in the same house
-  // — being alone in a room with NPCs is a 1-1 conversation, not a
-  // group chat.
-  if (state.othersHere <= 0) return null;
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-30 flex items-center gap-2 rounded-md border-2 border-ink bg-paper px-3 py-1.5 shadow-[4px_4px_0_0_#1a1d22]">
       <span className="border-2 border-ink bg-ink px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-paper">

@@ -413,3 +413,32 @@ model VisitorItem {
   @@index([townSlug, subjectKey, createdAt])
   @@index([templateId, createdAt])
 }
+
+// Town-scoped activity feed. One row per surfaced event (visit, npc
+// chat, tag/item award, group-chat session start). The FEED panel in
+// /{slug} reads back the most recent rows newest-first.
+//
+// `subjectKey` is the same "user:<id>" / "guest:<id>" shape used by
+// Conversation / VisitorTag — lets the same browser collect activity
+// across signed-in and anonymous visits.
+//
+// `subjectName` + `subjectCharacter` are denormalized at write time so
+// the feed doesn't need to join back to User on render and so a name
+// change doesn't rewrite history.
+//
+// Dedupe is handled at write time inside recordTownActivity() — kinds
+// like `visit` / `npc_chat` / `group_chat_started` only emit when no
+// matching row exists in a per-kind lookback window.
+model TownActivity {
+  id               String   @id @default(cuid())
+  townSlug         String
+  kind             String
+  subjectKey       String
+  subjectName      String
+  subjectCharacter String?
+  metadata         Json
+  createdAt        DateTime @default(now())
+
+  @@index([townSlug, createdAt])
+  @@index([townSlug, kind, subjectKey, createdAt])
+}

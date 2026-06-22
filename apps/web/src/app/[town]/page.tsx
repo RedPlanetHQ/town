@@ -13,8 +13,9 @@ import { notFound } from "next/navigation";
 
 import { OWNER_DEFAULT_CHARACTER } from "@/lib/characters";
 import { prisma } from "@/lib/db";
-import { userParticipantKey } from "@/lib/participant";
+import { guestParticipantKey, userParticipantKey } from "@/lib/participant";
 import { getSessionFromCookie } from "@/lib/session";
+import { recordTownActivity } from "@/lib/town-activity";
 import { getTownBySlug } from "@/lib/town";
 import { normalizeCode, parseVisitorCookie, visitorCookieName } from "@/lib/town-code";
 import { TownGame } from "@/ui/TownGame";
@@ -97,8 +98,19 @@ export default async function TownPage({
   if (isOwner) {
     const owner = await prisma.user.findUnique({
       where: { id: town.ownerId },
-      select: { character: true },
+      select: { character: true, name: true },
     });
+    // Log the owner walking back into their own town. Dedupe in
+    // recordTownActivity keeps soft navs / refreshes from spamming the
+    // feed — we re-emit at most once per hour.
+    void recordTownActivity({
+      townSlug: town.slug,
+      kind: "visit",
+      subjectKey: userParticipantKey(town.ownerId),
+      subjectName: owner?.name ?? "Owner",
+      subjectCharacter: owner?.character ?? OWNER_DEFAULT_CHARACTER,
+      metadata: { isOwner: true },
+    }).catch((e) => console.warn("[town-activity] visit failed", e));
     return (
       <TownGame
         ownerCharacter={owner?.character ?? OWNER_DEFAULT_CHARACTER}
@@ -112,6 +124,17 @@ export default async function TownPage({
   // The cookie carries the code the visitor used at entry — if the owner
   // has rotated since, treat the cookie as expired and re-render the gate.
   if (visitor && visitor.c === town.shareCode) {
+    const subjectKey = session
+      ? userParticipantKey(session.user.id)
+      : guestParticipantKey(visitor.g);
+    void recordTownActivity({
+      townSlug: town.slug,
+      kind: "visit",
+      subjectKey,
+      subjectName: visitor.n,
+      subjectCharacter: visitor.ch,
+      metadata: { isOwner: false },
+    }).catch((e) => console.warn("[town-activity] visit failed", e));
     return (
       <TownGame
         viewerMode="visitor"

@@ -20,6 +20,7 @@ import type { TownCatalog } from "@town/types";
 
 import { prisma } from "./db";
 import type { NpcPermissions } from "./npc-templates";
+import { recordTownActivity } from "./town-activity";
 import {
   findItem,
   findTag,
@@ -173,9 +174,16 @@ export interface TownContext {
   townSlug: string;
   /** "user:<id>" / "guest:<id>" — same shape Conversation rows use. */
   subjectKey: string;
+  /** Display name + character for the visitor. Threaded through so the
+   *  award tools can write a TownActivity row without re-resolving the
+   *  viewer. */
+  subjectName: string;
+  subjectCharacter: string | null;
   /** NPC row id, stored on VisitorTag.awardedByNpc / VisitorItem.awardedByNpc
    *  for audit. May be null if the NPC is ephemeral / not persisted. */
   npcId: string | null;
+  /** NPC display name (for activity feed metadata). */
+  npcName: string | null;
   /** The town's catalog (tags + item templates with SVG bodies). null
    *  means the town hasn't authored one yet — grant_tag and give_item
    *  silently don't register. */
@@ -567,6 +575,18 @@ export function buildNpcTools(
           // Upsert — re-granting the same tag refreshes the expiry and
           // updates the awardedByNpc/reason audit. Idempotent for the
           // model so it can re-grant without polluting the row count.
+          // We probe `existed` first so the activity feed only logs
+          // on the FIRST award; re-grants are silent.
+          const existed = await prisma.visitorTag.findUnique({
+            where: {
+              townSlug_subjectKey_tagId: {
+                townSlug: townCtx.townSlug,
+                subjectKey: townCtx.subjectKey,
+                tagId: tag_id,
+              },
+            },
+            select: { id: true },
+          });
           await prisma.visitorTag.upsert({
             where: {
               townSlug_subjectKey_tagId: {
@@ -589,6 +609,24 @@ export function buildNpcTools(
               expiresAt,
             },
           });
+          if (!existed) {
+            void recordTownActivity({
+              townSlug: townCtx.townSlug,
+              kind: "tag_awarded",
+              subjectKey: townCtx.subjectKey,
+              subjectName: townCtx.subjectName,
+              subjectCharacter: townCtx.subjectCharacter,
+              metadata: {
+                tagId: def.id,
+                tagLabel: def.label,
+                tagEmoji: def.emoji,
+                npcId: townCtx.npcId,
+                npcName: townCtx.npcName,
+              },
+            }).catch((e) =>
+              console.warn("[town-activity] tag_awarded failed", e),
+            );
+          }
           return {
             ok: true,
             tag: {
@@ -692,6 +730,22 @@ export function buildNpcTools(
             },
             select: { id: true },
           });
+          void recordTownActivity({
+            townSlug: townCtx.townSlug,
+            kind: "item_awarded",
+            subjectKey: townCtx.subjectKey,
+            subjectName: townCtx.subjectName,
+            subjectCharacter: townCtx.subjectCharacter,
+            metadata: {
+              itemId: row.id,
+              templateId: def.id,
+              templateLabel: def.label,
+              npcId: townCtx.npcId,
+              npcName: townCtx.npcName,
+            },
+          }).catch((e) =>
+            console.warn("[town-activity] item_awarded failed", e),
+          );
           const sharePath = `/items/${row.id}`;
           const share_url = townCtx.publicBaseUrl
             ? `${townCtx.publicBaseUrl.replace(/\/$/, "")}${sharePath}`

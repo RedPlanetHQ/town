@@ -69,16 +69,16 @@ export function mountGroupChatForScene(input: MountGroupChatInput): void {
   const detachRoster = onRemotesChange(updatePopulation);
 
   // [G] toggles the overlay. Open kicks off room subscription +
-  // backfill; close tears it down. Pressing G with nobody else in
-  // the house is a no-op — group chat is for groups, talk to NPCs
-  // 1-1 via SPACE if you're alone.
+  // backfill; close tears it down. A solo player can open the room
+  // too — group chat doubles as the in-building "broadcast to NPCs"
+  // surface, and the activity feed surfaces the start so other
+  // players know to wander in.
   k.onKeyPress("g", () => {
     const cur = groupChatStore.getState();
     if (cur.open) {
       void closeRoom();
       return;
     }
-    if (cur.othersHere <= 0) return;
     void openRoom({ slug, buildingId, buildingLabel });
   });
 

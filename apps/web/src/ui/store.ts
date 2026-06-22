@@ -49,6 +49,11 @@ export type InviteState = { open: true } | null;
 // share buttons. Opened from the identity card dropdown's "Share" action.
 export type ShareImageState = { open: true } | null;
 
+// Town activity feed — slide-in panel on the right edge of the screen.
+// Opened from the top-right FEED button on the overworld HUD. Visitor
+// + owner both see the same feed.
+export type FeedState = { open: true } | null;
+
 // Closest remote player within talk-distance, set by the scene's
 // proximity tick. The InteractionPrompt reads from this to render
 // "SPACE to talk to <name>".
@@ -157,6 +162,7 @@ type State = {
   chat: ChatState;
   invite: InviteState;
   shareImage: ShareImageState;
+  feed: FeedState;
   proximity: ProximityState;
   dm: DmState;
   suggestions: SuggestionsState;
@@ -176,6 +182,7 @@ let state: State = {
   chat: null,
   invite: null,
   shareImage: null,
+  feed: null,
   proximity: null,
   dm: null,
   suggestions: {
@@ -289,6 +296,27 @@ export const ui = {
   closeShareImage() {
     if (!state.shareImage) return;
     state = { ...state, shareImage: null };
+    emit();
+  },
+
+  openFeed() {
+    if (state.feed) return;
+    state = { ...state, feed: { open: true } };
+    emit();
+  },
+
+  closeFeed() {
+    if (!state.feed) return;
+    state = { ...state, feed: null };
+    emit();
+  },
+
+  toggleFeed() {
+    if (state.feed) {
+      state = { ...state, feed: null };
+    } else {
+      state = { ...state, feed: { open: true } };
+    }
     emit();
   },
 

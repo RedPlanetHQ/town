@@ -58,6 +58,7 @@ import {
 } from "@/lib/npc-tools";
 import { safeBlock, safeInline } from "@/lib/prompt-sanitize";
 import { loadTownCatalog } from "@/lib/town-tools";
+import { recordTownActivity } from "@/lib/town-activity";
 import { resolveViewer } from "@/lib/viewer";
 
 export const runtime = "nodejs";
@@ -285,6 +286,10 @@ export async function POST(req: Request) {
   // stable participantKey to attribute awards. Captured here when the
   // route is hit with townSlug so we can build a TownContext below.
   let visitorSubjectKey: string | null = null;
+  // Activity-feed metadata. Only populated on the townSlug path —
+  // legacy owner-only chats happen on personal towns without a public
+  // feed.
+  let activityCharacter: string | null = null;
   if (body.townSlug) {
     const view = await resolveViewer(body.townSlug);
     if ("error" in view) {
@@ -296,6 +301,7 @@ export async function POST(req: Request) {
     npcOwnerId = view.town.ownerId;
     viewer = { isOwner: view.isOwner, name: view.displayName };
     visitorSubjectKey = view.participantKey;
+    activityCharacter = view.character;
   } else {
     const resolved = await resolveUser(req);
     if (!resolved) {
@@ -321,6 +327,21 @@ export async function POST(req: Request) {
       status: 404,
       headers: { "content-type": "application/json" },
     });
+  }
+
+  // Activity feed: record the speaker started talking to this NPC.
+  // recordTownActivity dedupes (subject, npcId) within an hour, so a
+  // chatty session of many turns still only emits one row. Fire-and-
+  // forget — never block the stream.
+  if (body.townSlug && visitorSubjectKey) {
+    void recordTownActivity({
+      townSlug: body.townSlug,
+      kind: "npc_chat",
+      subjectKey: visitorSubjectKey,
+      subjectName: viewer.name,
+      subjectCharacter: activityCharacter,
+      metadata: { npcId: npc.id, npcName: npc.name },
+    }).catch((e) => console.warn("[town-activity] npc_chat failed", e));
   }
 
   // Every CORE tool the NPC may call routes through the TOWN OWNER's
@@ -349,7 +370,10 @@ export async function POST(req: Request) {
       ? {
           townSlug: body.townSlug,
           subjectKey: visitorSubjectKey,
+          subjectName: viewer.name,
+          subjectCharacter: activityCharacter,
           npcId: npc.id,
+          npcName: npc.name,
           catalog: townCatalog,
           // grant_tag / give_item self-suppress when this is true. The
           // owner-only path below (no townSlug) never builds a townCtx

@@ -15,6 +15,7 @@ import { publish } from "@/lib/centrifugo";
 import { prisma } from "@/lib/db";
 import { normalizePermissions } from "@/lib/npc-templates";
 import { ensureNpcsForUser } from "@/lib/plot";
+import { recordTownActivity } from "@/lib/town-activity";
 
 import type {
   GroupMessageWire,
@@ -75,6 +76,22 @@ export async function POST(req: Request, ctx: { params: Promise<Params> }) {
     });
   }
 
+  // Activity feed: emit "group chat started in <building>" only when
+  // the room has been silent for the last hour — i.e. this human post
+  // is opening a fresh session, not extending an active one. We check
+  // BEFORE inserting so we don't see our own row. NPC replies count as
+  // activity (they keep the room "live"), so a chatty NPC chain bridges
+  // sessions and the next human post within the hour stays silent.
+  const SESSION_WINDOW_MS = 60 * 60 * 1000;
+  const prior = await prisma.groupMessage.findFirst({
+    where: {
+      channelId: access.channelId,
+      createdAt: { gte: new Date(Date.now() - SESSION_WINDOW_MS) },
+    },
+    select: { id: true },
+  });
+  const isFreshSession = !prior;
+
   const row = await prisma.groupMessage.create({
     data: {
       channelId: access.channelId,
@@ -84,6 +101,22 @@ export async function POST(req: Request, ctx: { params: Promise<Params> }) {
       text,
     },
   });
+
+  if (isFreshSession) {
+    void recordTownActivity({
+      townSlug: access.viewer.town.slug,
+      kind: "group_chat_started",
+      subjectKey: access.viewer.participantKey,
+      subjectName: access.viewer.displayName,
+      subjectCharacter: access.viewer.character,
+      metadata: {
+        buildingId: access.building.id,
+        buildingLabel: access.building.label ?? access.building.id,
+      },
+    }).catch((e) =>
+      console.warn("[town-activity] group_chat_started failed", e),
+    );
+  }
 
   const wire: GroupMessageWire = {
     type: "message",

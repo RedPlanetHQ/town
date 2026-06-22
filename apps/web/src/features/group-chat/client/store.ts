@@ -40,12 +40,9 @@ export type GroupChatState = {
   currentHouse: GroupChatRoom | null;
   /** How many OTHER human players are in the same interior scene
    *  right now. Updated live by the attach module via the realtime
-   *  roster. The `[G]` prompt + the G-key toggle both gate on
-   *  `othersHere > 0`, so a player alone in a house never sees the
-   *  group-chat affordance — group chat is for groups. Existing open
-   *  overlays are NOT closed when this drops back to 0 mid-session;
-   *  finishing the in-flight conversation matters more than a strict
-   *  gate. */
+   *  roster. Surfaced in the floating `[G]` prompt as a "· N here"
+   *  hint — no longer gates the affordance itself (solo players can
+   *  open the room too; the activity feed surfaces the start). */
   othersHere: number;
   messages: GroupMessageRow[];
   /** Keyed by authorKey so a re-publish from the same author refreshes

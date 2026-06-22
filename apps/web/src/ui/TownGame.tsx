@@ -35,6 +35,7 @@ import { VisitorHud } from "./VisitorHud";
 import { PALETTE } from "../game/config";
 import { ui } from "./store";
 import { GroupChatPrompt, GroupChatSurface } from "../features/group-chat";
+import { ActivityFeed } from "./ActivityFeed";
 import { TransitionLoading } from "./TransitionLoading";
 
 // The mount point: a canvas owned by React, populated by kaplay in useEffect,
@@ -89,6 +90,7 @@ export function TownGame(props: TownGameProps = {}) {
     chat,
     invite,
     shareImage,
+    feed,
     proximity,
     dm,
     suggestions,
@@ -247,7 +249,9 @@ export function TownGame(props: TownGameProps = {}) {
           visitor — it's a shared "how busy is this town" signal. Owner
           also gets Suggestions below it. Visitors get an Items badge
           underneath that hides itself when the inventory is empty —
-          owners never earn items so it stays off for them. */}
+          owners never earn items so it stays off for them. The FEED
+          button toggles the right-edge activity panel; only available
+          on a real town (slug present), not the guest playground at /. */}
       <div className="pointer-events-auto absolute right-4 top-4 z-30 flex flex-col items-end gap-2">
         <PopulationBadge
           ownerParticipantKey={
@@ -256,6 +260,7 @@ export function TownGame(props: TownGameProps = {}) {
               : null
           }
         />
+        {ownerSlug || visitorSlug ? <FeedToggleButton open={!!feed} /> : null}
         {isVisitor ? (
           <ItemsBadge townSlug={(props as { townSlug: string }).townSlug} />
         ) : null}
@@ -309,6 +314,12 @@ export function TownGame(props: TownGameProps = {}) {
           feature. */}
       <GroupChatPrompt />
       <GroupChatSurface />
+
+      {/* Town activity feed (slide-in right panel). Only renders for
+          real towns — the guest playground at / has no slug. */}
+      {feed && (ownerSlug || visitorSlug) ? (
+        <ActivityFeed townSlug={(ownerSlug ?? visitorSlug)!} />
+      ) : null}
 
       {/* Bottom-LEFT stack — visitor pitch on top (visitor mode only)
           + a "Town from core" attribution underneath that ALWAYS shows
@@ -440,6 +451,31 @@ function BuildYourOwnTownCta() {
         Build your own town
       </span>
     </a>
+  );
+}
+
+// Top-right pill that toggles the right-edge activity feed panel.
+// Renders for both owners and visitors as long as a town slug is in
+// scope — the feed itself uses the slug to fetch.
+function FeedToggleButton({ open }: { open: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={() => ui.toggleFeed()}
+      className="nb-card flex items-center gap-2 px-3 py-2 text-left"
+      style={{ background: open ? "#1a1d22" : "#ffffff", color: open ? "#f0e442" : "var(--ink)" }}
+      aria-pressed={open}
+      title={open ? "Hide activity feed" : "Show activity feed"}
+    >
+      <span
+        aria-hidden
+        className="inline-block h-2 w-2 rounded-full"
+        style={{ background: "#f0e442" }}
+      />
+      <span className="text-[12px] font-bold uppercase leading-tight tracking-wider">
+        Feed
+      </span>
+    </button>
   );
 }
 

@@ -4,6 +4,7 @@
 
 import { cookies } from "next/headers";
 
+import { prisma } from "./db";
 import { guestParticipantKey, userParticipantKey } from "./participant";
 import { getSessionFromCookie } from "./session";
 import { getTownBySlug } from "./town";
@@ -13,6 +14,10 @@ export type ResolvedViewer = {
   // Centrifugo + Conversation rows both index on this.
   participantKey: string;
   displayName: string;
+  // Sprite key the viewer appears as in this town. Owner's User.character
+  // when isOwner, the visitor cookie's `ch` otherwise. Null for the
+  // legacy case where the column hasn't been backfilled.
+  character: string | null;
   // The town row we resolved against — caller usually wants this anyway.
   town: NonNullable<Awaited<ReturnType<typeof getTownBySlug>>>;
   isOwner: boolean;
@@ -31,9 +36,14 @@ export async function resolveViewer(
   const session = await getSessionFromCookie();
   const isOwner = !!session && session.user.id === town.ownerId;
   if (isOwner && session) {
+    const owner = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { character: true },
+    });
     return {
       participantKey: userParticipantKey(session.user.id),
       displayName: session.user.name,
+      character: owner?.character ?? null,
       town,
       isOwner: true,
     };
@@ -47,6 +57,7 @@ export async function resolveViewer(
     return {
       participantKey: userParticipantKey(session.user.id),
       displayName: session.user.name || visitor.n,
+      character: visitor.ch,
       town,
       isOwner: false,
     };
@@ -54,6 +65,7 @@ export async function resolveViewer(
   return {
     participantKey: guestParticipantKey(visitor.g),
     displayName: visitor.n,
+    character: visitor.ch,
     town,
     isOwner: false,
   };
