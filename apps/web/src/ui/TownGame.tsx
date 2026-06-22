@@ -246,12 +246,12 @@ export function TownGame(props: TownGameProps = {}) {
       ) : null}
 
       {/* Top-right stack. Population badge sits on top for both owner +
-          visitor — it's a shared "how busy is this town" signal. Owner
-          also gets Suggestions below it. Visitors get an Items badge
-          underneath that hides itself when the inventory is empty —
-          owners never earn items so it stays off for them. The FEED
-          button toggles the right-edge activity panel; only available
-          on a real town (slug present), not the guest playground at /. */}
+          visitor — it's a shared "how busy is this town" signal, and
+          it now hosts the inline FEED toggle for the right-edge
+          activity panel (only when a real town slug is in scope, not
+          on the guest `/` playground). Owner gets Suggestions below
+          it; visitors get the Items badge that self-hides when the
+          inventory is empty. */}
       <div className="pointer-events-auto absolute right-4 top-4 z-30 flex flex-col items-end gap-2">
         <PopulationBadge
           ownerParticipantKey={
@@ -259,8 +259,9 @@ export function TownGame(props: TownGameProps = {}) {
               ? (props as { ownerParticipantKey: string }).ownerParticipantKey
               : null
           }
+          showFeedToggle={!!(ownerSlug || visitorSlug)}
+          feedOpen={!!feed}
         />
-        {ownerSlug || visitorSlug ? <FeedToggleButton open={!!feed} /> : null}
         {isVisitor ? (
           <ItemsBadge townSlug={(props as { townSlug: string }).townSlug} />
         ) : null}
@@ -343,16 +344,20 @@ export function TownGame(props: TownGameProps = {}) {
   );
 }
 
-// Top-right "Population: N" card. Counts every NPC the user has authored
-// plus every remote player the realtime bus knows about plus the local
-// viewer. Always visible — even an empty-feeling town has NPC residents,
-// and the badge is the cheapest "this is a populated place" signal we
-// have. Visitor mode also drops an "owner not in town" tag underneath
-// when the owner isn't currently roaming.
+// Top-right "Population: N | Feed" card. Counts every NPC the user has
+// authored plus every remote player the realtime bus knows about plus
+// the local viewer. The right half is an inline FEED toggle that opens
+// the activity panel — packaged into the same card so the corner stays
+// quiet (one tile instead of two). The Feed segment hides on the guest
+// `/` playground where there's no slug to fetch against.
 function PopulationBadge({
   ownerParticipantKey,
+  showFeedToggle,
+  feedOpen,
 }: {
   ownerParticipantKey: string | null;
+  showFeedToggle: boolean;
+  feedOpen: boolean;
 }) {
   const [remotes, setRemotes] = useState(() => getRemotePlayers());
   const [npcCount, setNpcCount] = useState(() => getNpcCount());
@@ -382,8 +387,30 @@ function PopulationBadge({
           : `${total} in town — NPCs + visitors + you`
       }
     >
-      <span className="text-[12px] font-bold leading-tight text-ink">
-        Population: {total}
+      <span className="flex items-center gap-2 text-[12px] font-bold leading-tight text-ink">
+        <span>Population: {total}</span>
+        {showFeedToggle ? (
+          <>
+            <span aria-hidden className="opacity-30">
+              |
+            </span>
+            <button
+              type="button"
+              onClick={() => ui.toggleFeed()}
+              aria-pressed={feedOpen}
+              title={feedOpen ? "Hide activity feed" : "Show activity feed"}
+              className="flex items-center gap-1 text-[12px] font-bold uppercase tracking-wider hover:opacity-70"
+              style={{ color: feedOpen ? "#b58900" : "inherit" }}
+            >
+              <span
+                aria-hidden
+                className="inline-block h-2 w-2 rounded-full"
+                style={{ background: "#f0e442" }}
+              />
+              Feed
+            </button>
+          </>
+        ) : null}
       </span>
       {ownerAway ? (
         <span className="text-[10px] font-bold uppercase leading-tight tracking-wide text-ink opacity-60">
@@ -451,31 +478,6 @@ function BuildYourOwnTownCta() {
         Build your own town
       </span>
     </a>
-  );
-}
-
-// Top-right pill that toggles the right-edge activity feed panel.
-// Renders for both owners and visitors as long as a town slug is in
-// scope — the feed itself uses the slug to fetch.
-function FeedToggleButton({ open }: { open: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={() => ui.toggleFeed()}
-      className="nb-card flex items-center gap-2 px-3 py-2 text-left"
-      style={{ background: open ? "#1a1d22" : "#ffffff", color: open ? "#f0e442" : "var(--ink)" }}
-      aria-pressed={open}
-      title={open ? "Hide activity feed" : "Show activity feed"}
-    >
-      <span
-        aria-hidden
-        className="inline-block h-2 w-2 rounded-full"
-        style={{ background: "#f0e442" }}
-      />
-      <span className="text-[12px] font-bold uppercase leading-tight tracking-wider">
-        Feed
-      </span>
-    </button>
   );
 }
 
