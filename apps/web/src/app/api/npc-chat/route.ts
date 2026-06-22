@@ -390,6 +390,27 @@ export async function POST(req: Request) {
     townCtx,
   );
 
+  // Visibility: log every chat startup with the tool surface the model
+  // is about to see + the gating context that produced it. Lets us
+  // diagnose "Garry never gave me an item" cases by reading the server
+  // log instead of attaching a debugger — if `give_item` is missing
+  // here, it never had a chance.
+  console.log("[npc-chat] start", {
+    townSlug: body.townSlug ?? null,
+    npcId: npc.id,
+    npcName: npc.name,
+    speaker: viewer.name,
+    isOwner: viewer.isOwner,
+    hasCatalog: !!townCtx?.catalog,
+    catalogTags: townCtx?.catalog?.tags?.length ?? 0,
+    catalogItems: townCtx?.catalog?.items?.length ?? 0,
+    // The raw permissions blob on the DB row — if this is null or
+    // missing town.give_item / town.grant_tag, the MDX edit was never
+    // deployed (POST /api/town wipes + recreates from the manifest).
+    rawPermissions: npc.permissions,
+    tools: Object.keys(tools),
+  });
+
   const system = buildSystemPrompt(
     npc,
     body.mode,
@@ -432,6 +453,30 @@ export async function POST(req: Request) {
     messages: await convertToModelMessages(uiMessages),
     tools,
     stopWhen: stepCountIs(5),
+    onStepFinish(step) {
+      // Per-step trace of what the model called and what came back.
+      // `step.toolCalls` is the request (name + args); `toolResults`
+      // is what each execute returned. We log both so you can see e.g.
+      // give_item asked for { template_id, fields } and got back
+      // { ok, item_id } — or { error: "award-limit-reached" } if it
+      // tried twice in one turn.
+      const calls = step.toolCalls ?? [];
+      const results = step.toolResults ?? [];
+      if (calls.length === 0 && results.length === 0) return;
+      console.log("[npc-chat] step", {
+        npcId: npc!.id,
+        npcName: npc!.name,
+        speaker: viewer.name,
+        toolCalls: calls.map((c) => ({
+          name: c.toolName,
+          input: c.input,
+        })),
+        toolResults: results.map((r) => ({
+          name: r.toolName,
+          output: r.output,
+        })),
+      });
+    },
     async onFinish(event) {
       // Final visible reply for a single-step turn is on event.text;
       // multi-step (tool-call) generations sometimes leave the last

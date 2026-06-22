@@ -32,12 +32,17 @@ interface ActivityRow {
   createdAt: string;
 }
 
-const KIND_ICON: Record<ActivityKind, string> = {
-  visit: "🚪",
-  npc_chat: "💬",
-  tag_awarded: "🏷️",
-  item_awarded: "🎁",
-  group_chat_started: "🗣️",
+// Color-code each row by kind via a thin left border. Avoids a second
+// tile next to the avatar (read as a category code) and lets the
+// sentence's verb carry the meaning. Emoji icons were dropped because
+// rendering is platform-dependent and most blended into the dark
+// background.
+const KIND_ACCENT: Record<ActivityKind, string> = {
+  visit: "#009e73", // green — arrival
+  npc_chat: "#56b4e9", // sky — conversation
+  tag_awarded: "#f0e442", // yellow — earned
+  item_awarded: "#cc79a7", // pink — gift
+  group_chat_started: "#e69f00", // orange — room
 };
 
 export function ActivityFeed({ townSlug }: { townSlug: string }) {
@@ -138,16 +143,16 @@ function FeedItem({ row }: { row: ActivityRow }) {
   const sentence = useMemo(() => describeActivity(row), [row]);
   const relative = useRelativeTime(row.createdAt);
   return (
-    <li className="border-b border-paper/10 py-3 last:border-b-0">
-      <div className="px-1 text-[10px] uppercase tracking-wider text-paper/50">
+    <li
+      className="border-b border-paper/10 border-l-2 py-3 pl-3 last:border-b-0"
+      style={{ borderLeftColor: KIND_ACCENT[row.kind] }}
+    >
+      <div className="text-[10px] uppercase tracking-wider text-paper/50">
         {relative}
       </div>
-      <div className="mt-1 flex items-start gap-2 px-1">
+      <div className="mt-1 flex items-start gap-2">
         <InitialTile name={row.subjectName} />
         <div className="flex-1 text-[12px] uppercase leading-snug tracking-wider text-[#f0e442]">
-          <span aria-hidden className="mr-1 text-[13px]">
-            {KIND_ICON[row.kind]}
-          </span>
           {sentence}
         </div>
       </div>

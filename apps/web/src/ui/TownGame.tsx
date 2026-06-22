@@ -443,14 +443,14 @@ function BottomLeftCard({ showBuildCta }: { showBuildCta: boolean }) {
             aria-hidden
             className="h-4 w-4 shrink-0"
           />
-          <span className="text-[12px] font-bold leading-tight text-ink">
+          <span className="text-base font-bold leading-tight text-ink">
             Build your own town
           </span>
         </a>
       ) : null}
       <div
         className={
-          "px-3 py-2 text-[12px] font-bold leading-tight text-ink" +
+          "px-3 py-2 text-base font-bold leading-tight text-ink" +
           (showBuildCta ? " border-t border-ink/10 opacity-80" : "")
         }
       >
