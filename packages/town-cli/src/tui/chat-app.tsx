@@ -593,17 +593,23 @@ function ChatRowView({
   expanded: boolean;
 }): React.ReactElement {
   if (row.type === "user") {
+    // User bubble: dark-gray background + ❯ prefix, with a blank line
+    // below so the next assistant turn has room to breathe.
     return (
-      <Box>
-        <Text color="cyan">user: </Text>
-        <Text>{row.text}</Text>
+      <Box marginBottom={1}>
+        <Text backgroundColor="#3a3a3a" color="white">
+          {" ❯ "}
+          {row.text}
+          {" "}
+        </Text>
       </Box>
     );
   }
   if (row.type === "assistant") {
+    // Assistant: no prefix, default colour. One blank line below to
+    // separate from the next user turn or tool-call group.
     return (
-      <Box>
-        <Text color="green">assistant: </Text>
+      <Box marginBottom={1}>
         <Text>{row.text}</Text>
       </Box>
     );
@@ -611,8 +617,10 @@ function ChatRowView({
   if (row.type === "tool") {
     return <ToolCallView call={row.call} expanded={expanded} />;
   }
+  // System rows — slash-command output, hints, errors. Errors get red
+  // chrome handled inline (see streamFailure rendering path).
   return (
-    <Box>
+    <Box marginBottom={1}>
       <Text color="yellow">{row.text}</Text>
     </Box>
   );
