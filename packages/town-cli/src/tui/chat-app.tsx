@@ -88,6 +88,10 @@ interface State {
   rows: ChatRow[];
   pending: PendingChange[];
   aura: { current: number; max: number };
+  /** Active conversation id, updated when `/clear` opens a fresh one.
+   *  Surfaced for debugging; the server still owns conversation rotation
+   *  so the next turn picks up the active row by (townId, userId). */
+  conversationId?: string;
   mode: "input" | "streaming" | "diff" | "applying";
   inputBuffer: string;
   /** Active tool-call buffers keyed by toolCallId — referenced both from
@@ -114,7 +118,7 @@ type Action =
   | { type: "enter-applying"; message: string }
   | { type: "exit-applying"; message?: string }
   | { type: "toggle-tools-expanded" }
-  | { type: "reset-conversation" }
+  | { type: "reset-conversation"; conversationId?: string }
   | { type: "set-status"; message?: string };
 
 function reducer(state: State, action: Action): State {
@@ -163,6 +167,7 @@ function reducer(state: State, action: Action): State {
         ...state,
         rows: [],
         pending: [],
+        conversationId: action.conversationId ?? state.conversationId,
         mode: "input",
         statusMessage: "Conversation cleared.",
         activeCalls: new Map(),
@@ -375,9 +380,14 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
       }
 
       if (trimmed === "/clear") {
+        // Slash-command — never send as a chat message. Archive the
+        // server-side conversation, then drop both the local message
+        // history and the pending-change queue (the new conversation
+        // starts with an empty queue by definition).
         dispatch({ type: "set-input", value: "" });
+        let nextConvoId: string | undefined;
         try {
-          await fetch(`${props.townUrl}/api/creator`, {
+          const res = await fetch(`${props.townUrl}/api/creator`, {
             method: "POST",
             headers: {
               "content-type": "application/json",
@@ -388,11 +398,17 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
               action: "clear-conversation",
             }),
           });
+          if (res.ok) {
+            const body = (await res.json().catch(() => ({}))) as {
+              conversationId?: string;
+            };
+            nextConvoId = body.conversationId;
+          }
         } catch {
           // server unreachable — still reset locally so the user can
           // keep working offline-ish.
         }
-        dispatch({ type: "reset-conversation" });
+        dispatch({ type: "reset-conversation", conversationId: nextConvoId });
         return;
       }
 
