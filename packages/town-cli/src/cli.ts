@@ -5,6 +5,7 @@
 //                   Outside → prints help.
 //   town new        Create a new town and drop into the chat creator.
 //   town clone      Pull an existing town's state into a local folder.
+//   town delete     Permanently delete one of your towns.
 //   town catalog    Print the global plotKey catalog.
 //   town deploy     Push the local town folder to the server.
 //   town login      Authenticate with CORE (saves a PAT to ~/.town/config.json).
@@ -19,6 +20,7 @@ import { registerInit } from "./commands/init.js";
 import { registerDeploy } from "./commands/deploy.js";
 import { registerNew, launchChat } from "./commands/new.js";
 import { registerClone } from "./commands/clone.js";
+import { registerDelete } from "./commands/delete.js";
 import { registerCatalog } from "./commands/catalog.js";
 
 import { getConfig } from "./config.js";
@@ -36,6 +38,7 @@ registerInit(program);
 registerDeploy(program);
 registerNew(program);
 registerClone(program);
+registerDelete(program);
 registerCatalog(program);
 
 // Bare `town`: if we're inside a town folder, drop into the chat
