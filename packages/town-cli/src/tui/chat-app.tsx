@@ -85,9 +85,10 @@ interface State {
    *  the scroll (for rendering) and the chunk handler (for accumulation).
    *  We index here to keep handlers O(1). */
   activeCalls: Map<string, ToolCallState>;
-  /** Per-call expansion toggle. Driven by `o` while a tool call is the
-   *  most-recent row. */
-  expandedCallIds: Set<string>;
+  /** Transcript-wide expansion toggle. Ctrl+O flips this and every
+   *  tool call in the scroll renders accordingly — matches the CORE
+   *  CLI affordance. */
+  toolsExpanded: boolean;
   statusMessage?: string;
 }
 
@@ -103,7 +104,7 @@ type Action =
   | { type: "close-diff" }
   | { type: "enter-applying"; message: string }
   | { type: "exit-applying"; message?: string }
-  | { type: "toggle-expand-latest" }
+  | { type: "toggle-tools-expanded" }
   | { type: "reset-conversation" }
   | { type: "set-status"; message?: string };
 
@@ -146,15 +147,8 @@ function reducer(state: State, action: Action): State {
         statusMessage: action.message,
         pending: [],
       };
-    case "toggle-expand-latest": {
-      const last = [...state.rows].reverse().find((r) => r.type === "tool");
-      if (!last || last.type !== "tool") return state;
-      const id = last.call.toolCallId;
-      const next = new Set(state.expandedCallIds);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return { ...state, expandedCallIds: next };
-    }
+    case "toggle-tools-expanded":
+      return { ...state, toolsExpanded: !state.toolsExpanded };
     case "reset-conversation":
       return {
         ...state,
@@ -163,7 +157,7 @@ function reducer(state: State, action: Action): State {
         mode: "input",
         statusMessage: "Conversation cleared.",
         activeCalls: new Map(),
-        expandedCallIds: new Set(),
+        toolsExpanded: false,
       };
     case "set-status":
       return { ...state, statusMessage: action.message };
@@ -310,7 +304,7 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
     mode: "input" as const,
     inputBuffer: "",
     activeCalls: new Map(),
-    expandedCallIds: new Set<string>(),
+    toolsExpanded: false,
     statusMessage: undefined,
   }));
 
@@ -509,11 +503,11 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
         dispatch({ type: "open-diff" });
         return;
       }
-      if (input === "o" && key.ctrl === false && state.inputBuffer === "") {
-        // Toggle the latest tool-call row expansion. We only honour the
-        // shortcut when the input is empty so a literal "o" in a message
-        // doesn't lose itself.
-        dispatch({ type: "toggle-expand-latest" });
+      if (key.ctrl && input === "o") {
+        // Flip the transcript-wide tool-call expansion so every tool
+        // row in the scroll expands or collapses together — matches the
+        // CORE CLI affordance and works regardless of input contents.
+        dispatch({ type: "toggle-tools-expanded" });
         return;
       }
       if (key.backspace || key.delete) {
@@ -541,11 +535,7 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
           <ChatRowView
             key={i}
             row={row}
-            expanded={
-              row.type === "tool"
-                ? state.expandedCallIds.has(row.call.toolCallId)
-                : false
-            }
+            expanded={row.type === "tool" ? state.toolsExpanded : false}
           />
         ))}
         {state.mode === "streaming" ? (
@@ -634,7 +624,7 @@ function helpText(): string {
     "Bindings:",
     "  Enter   submit",
     "  ↓ (empty input) review pending changes",
-    "  o (empty input) toggle expand on the latest tool call",
+    "  Ctrl+O  toggle expand on all tool calls",
     "  Ctrl+C  exit",
   ].join("\n");
 }

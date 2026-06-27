@@ -1,8 +1,14 @@
-// One row per tool call in the chat scroll. Shows a short summary by
-// default; toggles to a full args + result dump when `expanded` is true.
-// Expansion is driven by the parent (chat-app keeps a per-call boolean
-// keyed by toolCallId) so collapse state survives further stream
-// chunks.
+// One row per tool call in the chat scroll.
+//
+// Collapsed (default): `{dot} {bold(name)} {dim('(' + argSummary + ')')}`
+// where the dot reflects the run state — ◌ yellow while running, ● green
+// when the output lands, ✗ red on error.
+//
+// Expanded (transcript-wide toggle via Ctrl+O): the header line plus a
+// 2-space-indented JSON dump of input and output, with the output capped
+// to the first 3 lines + a "+N more lines" hint when larger. The toggle
+// is owned by ChatApp so collapse state survives further stream chunks
+// and so flipping it once affects every tool call in the scroll.
 
 import React from "react";
 import { Box, Text } from "ink";
@@ -25,21 +31,22 @@ interface Props {
 }
 
 export function ToolCallView({ call, expanded }: Props): React.ReactElement {
-  const status = call.error
-    ? "error"
-    : call.done
-      ? "done"
-      : call.input !== undefined
-        ? "running"
-        : "input…";
-  const color = call.error ? "red" : call.done ? "green" : "yellow";
   const argsSummary = summarizeArgs(call.input);
+  const dot = call.error ? (
+    <Text color="red">{"✗"}</Text>
+  ) : call.done ? (
+    <Text color="green">{"●"}</Text>
+  ) : (
+    <Text color="yellow">{"◌"}</Text>
+  );
+
   return (
     <Box flexDirection="column">
       <Box>
-        <Text color={color}>{`[tool ${call.toolName}]`}</Text>
-        <Text dimColor>{` (${status})`}</Text>
-        {argsSummary ? <Text> {argsSummary}</Text> : null}
+        {dot}
+        <Text> </Text>
+        <Text bold>{call.toolName}</Text>
+        <Text dimColor>{` (${argsSummary})`}</Text>
       </Box>
       {expanded ? (
         <Box flexDirection="column" marginLeft={2}>
@@ -49,7 +56,7 @@ export function ToolCallView({ call, expanded }: Props): React.ReactElement {
             <Text dimColor>input (streaming): {call.partialInput}</Text>
           ) : null}
           {call.output !== undefined ? (
-            <Text dimColor>output: {safeStringify(call.output)}</Text>
+            <Text dimColor>output: {previewJson(call.output)}</Text>
           ) : null}
           {call.error ? <Text color="red">error: {call.error}</Text> : null}
         </Box>
@@ -64,7 +71,9 @@ function summarizeArgs(input: unknown): string {
   const obj = input as Record<string, unknown>;
   const keys = Object.keys(obj);
   if (keys.length === 0) return "";
-  // Pick the most useful key for the common mutation tools.
+  // Pick the most useful key for the common mutation tools. We render
+  // it as `key="value"` so it reads like the brief's example
+  // (plotKey="library", name="Judge Bork", …).
   const order = [
     "plotKey",
     "buildingId",
@@ -76,14 +85,14 @@ function summarizeArgs(input: unknown): string {
   ];
   for (const k of order) {
     if (k in obj && typeof obj[k] !== "object") {
-      return `${k}=${String(obj[k])}`;
+      return `${k}=${JSON.stringify(obj[k])}`;
     }
   }
   const first = keys[0]!;
   const v = obj[first];
   return typeof v === "object"
     ? `${first}={…}`
-    : `${first}=${String(v)}`;
+    : `${first}=${JSON.stringify(v)}`;
 }
 
 function safeStringify(v: unknown): string {
@@ -94,4 +103,21 @@ function safeStringify(v: unknown): string {
   } catch {
     return String(v);
   }
+}
+
+/** Render JSON capped to the first 3 lines with a "+N more lines" hint
+ *  when the dump is larger. Used by the expanded output preview to keep
+ *  large tool results from drowning the scroll. */
+function previewJson(v: unknown): string {
+  let s: string;
+  try {
+    s = JSON.stringify(v, null, 2);
+  } catch {
+    s = String(v);
+  }
+  const lines = s.split("\n");
+  if (lines.length <= 3) return s;
+  const head = lines.slice(0, 3).join("\n");
+  const more = lines.length - 3;
+  return `${head}\n+${more} more line${more === 1 ? "" : "s"}`;
 }
