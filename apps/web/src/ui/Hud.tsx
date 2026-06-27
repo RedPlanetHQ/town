@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 import { getPlayerCharacter } from "../game/character";
 import { logout } from "../game/auth";
@@ -10,8 +11,15 @@ import { ui } from "./store";
 import type { HudKind } from "./store";
 
 // Identity pill (overworld) or room name card (interior).
-// Click the identity pill to open a small dropdown with Share / Logout.
-export function Hud({ hud }: { hud: HudKind }) {
+// Click the identity pill to open a small dropdown with Invite / Share /
+// Switch town / Logout.
+export function Hud({
+  hud,
+  activeSlug,
+}: {
+  hud: HudKind;
+  activeSlug: string | null;
+}) {
   if (hud.kind === "overworld") {
     const session = hud.session;
     const name = session?.user.name ?? "Guest";
@@ -31,7 +39,13 @@ export function Hud({ hud }: { hud: HudKind }) {
       );
     }
 
-    return <IdentityMenu name={name} character={character} />;
+    return (
+      <IdentityMenu
+        name={name}
+        character={character}
+        activeSlug={activeSlug}
+      />
+    );
   }
 
   // interior — title pill, accent stripe on the left.
@@ -52,16 +66,20 @@ export function Hud({ hud }: { hud: HudKind }) {
 }
 
 // Click-to-open dropdown on the identity pill. Actions: Invite (URL +
-// code modal), Share (screenshot + Twitter/WhatsApp/Download modal), and
-// Logout. Closes on outside click + on Escape.
+// code modal), Share (screenshot + Twitter/WhatsApp/Download modal),
+// Switch town (submenu flyout listing owned towns + new-town entry),
+// and Logout. Closes on outside click + on Escape.
 function IdentityMenu({
   name,
   character,
+  activeSlug,
 }: {
   name: string;
   character: string;
+  activeSlug: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [showNewModal, setShowNewModal] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -96,7 +114,7 @@ function IdentityMenu({
       {open ? (
         <div
           role="menu"
-          className="nb-card-dark absolute left-0 top-full z-40 mt-1 flex min-w-[160px] flex-col p-1"
+          className="nb-card-dark absolute left-0 top-full z-40 mt-1 flex min-w-[180px] flex-col p-1"
         >
           <button
             type="button"
@@ -120,6 +138,14 @@ function IdentityMenu({
           >
             Share…
           </button>
+          <SwitchTownItem
+            activeSlug={activeSlug}
+            onPick={() => setOpen(false)}
+            onNewTown={() => {
+              setOpen(false);
+              setShowNewModal(true);
+            }}
+          />
           <button
             type="button"
             role="menuitem"
@@ -135,6 +161,192 @@ function IdentityMenu({
           </button>
         </div>
       ) : null}
+      {showNewModal ? (
+        <NewTownModal onClose={() => setShowNewModal(false)} />
+      ) : null}
+    </div>
+  );
+}
+
+// "Switch town ›" — hovering or clicking the row opens a flyout to the
+// right with every town the signed-in owner owns plus a "+ New town"
+// entry. Mirrors the CORE workspace-switcher pattern.
+type TownEntry = {
+  id: string;
+  slug: string;
+  name: string;
+  aura: { current: number; max: number };
+};
+
+type TownsMineResponse = {
+  towns: TownEntry[];
+  activeSlug: string | null;
+};
+
+function SwitchTownItem({
+  activeSlug,
+  onPick,
+  onNewTown,
+}: {
+  activeSlug: string | null;
+  onPick: () => void;
+  onNewTown: () => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const [towns, setTowns] = useState<TownEntry[] | null>(null);
+
+  useEffect(() => {
+    if (!hover || towns) return;
+    let cancelled = false;
+    void fetch("/api/towns/mine", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: TownsMineResponse | null) => {
+        if (cancelled) return;
+        setTowns(data?.towns ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setTowns([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hover, towns]);
+
+  return (
+    <div
+      role="menuitem"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="relative"
+    >
+      <div
+        className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper ${
+          hover ? "bg-white/5" : ""
+        }`}
+      >
+        <span>Switch town</span>
+        <span aria-hidden className="opacity-60">›</span>
+      </div>
+      {hover ? (
+        <div
+          role="menu"
+          className="nb-card-dark absolute left-full top-0 z-50 ml-1 flex min-w-[220px] flex-col p-1"
+        >
+          {towns === null ? (
+            <div className="px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-paper/50">
+              Loading…
+            </div>
+          ) : towns.length === 0 ? (
+            <div className="px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-paper/50">
+              No other towns
+            </div>
+          ) : (
+            towns.map((t) => {
+              const isActive = t.slug === activeSlug;
+              return (
+                <Link
+                  key={t.id}
+                  href={`/${t.slug}`}
+                  onClick={onPick}
+                  className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5 ${
+                    isActive ? "bg-white/5" : ""
+                  }`}
+                >
+                  <span className="truncate">{t.name}</span>
+                  <span className="flex items-center gap-2 text-paper/50">
+                    <span className="font-mono normal-case tracking-normal">
+                      {t.aura.current}/{t.aura.max}
+                    </span>
+                    {isActive ? (
+                      <span aria-hidden className="text-paper">✓</span>
+                    ) : null}
+                  </span>
+                </Link>
+              );
+            })
+          )}
+          <div className="my-1 border-t border-paper/15" />
+          <button
+            type="button"
+            role="menuitem"
+            className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5"
+            onClick={onNewTown}
+          >
+            + New town
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function NewTownModal({ onClose }: { onClose: () => void }) {
+  const cmd = "npx town new";
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  function copy() {
+    void navigator.clipboard.writeText(cmd).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="nb-card-dark flex w-full max-w-md flex-col gap-4 p-6">
+        <div className="flex items-start justify-between gap-3 border-b-2 border-paper/15 pb-3">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wide text-paper/60">
+              New town
+            </div>
+            <h2 className="mt-1 text-2xl font-black leading-tight text-paper">
+              Create a new town
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="border-2 border-paper/30 px-2 py-1 text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/10"
+            aria-label="Close new town"
+          >
+            ESC
+          </button>
+        </div>
+        <p className="text-sm font-bold text-paper/80">
+          Towns are created from the CLI so you can keep authoring next
+          to your editor.
+        </p>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-bold uppercase tracking-wide text-paper/60">
+            Run this in your shell
+          </span>
+          <div className="flex items-center justify-between gap-2 border-2 border-paper/20 bg-black/30 px-3 py-2">
+            <code className="truncate font-mono text-sm font-bold text-paper">
+              {cmd}
+            </code>
+            <button
+              type="button"
+              onClick={copy}
+              className="text-xs font-bold uppercase tracking-wide text-paper/60 hover:text-paper"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
