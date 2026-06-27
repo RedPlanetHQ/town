@@ -1,10 +1,15 @@
 // Creator-chat mutation tools.
 //
-// Each tool stages exactly one `CreatorChange` row + debits MUTATION_COST
-// aura inside the same Prisma transaction. The actual mutation against
-// the live town (Plot / Npc rows) happens later when the user clicks
-// "Apply" in the diff view and we drain the queued changes into a
-// single `/api/town?from=creator` POST.
+// Each tool appends one entry to `CreatorConversation.pendingChanges`
+// (a JSON array) + debits MUTATION_COST aura inside the same Prisma
+// transaction. The actual mutation against the live town (Plot / Npc
+// rows) happens later when the user clicks "Apply" in the diff view
+// and we drain the queue into a single `/api/town?from=creator` POST.
+//
+// Why JSON instead of a separate table: the queue is conversation-scoped
+// and we never query across conversations, so the read pattern is "give
+// me this conversation's whole queue." Storing as JSON on the parent row
+// removes a table + a join while keeping per-entry ids/timestamps.
 //
 // Aura semantics:
 //   • If the debit would take aura below zero, the transaction throws
@@ -12,19 +17,22 @@
 //     instead of bubbling. The model can then tell the user "you're out
 //     of aura — top up before staging more changes" without us having to
 //     fail the entire stream.
-//
-// Payload shape:
-//   • We pass the model's input through verbatim. The apply step is the
-//     one that translates {plotKey} into a fully-resolved PlotBuilding
-//     (variant fallback, label default, etc.) so the tool here doesn't
-//     need to know about the broader town shape.
 
+import { randomUUID } from "node:crypto";
 import { tool } from "ai";
 import { z } from "zod";
 
 import type { ToolContext } from "./read-tools";
 
 const MUTATION_COST = 10;
+
+export type PendingChange = {
+  id: string;
+  kind: string;
+  payload: object;
+  summary: string;
+  createdAt: string;
+};
 
 class AuraEmptyError extends Error {
   constructor() {
@@ -41,13 +49,23 @@ async function stageChange(
 ) {
   try {
     return await ctx.prisma.$transaction(async (tx) => {
-      const change = await tx.creatorChange.create({
-        data: {
-          conversationId: ctx.conversationId,
-          kind,
-          payload: payload as object,
-          summary,
-        },
+      const convo = await tx.creatorConversation.findUnique({
+        where: { id: ctx.conversationId },
+        select: { pendingChanges: true },
+      });
+      const queue = Array.isArray(convo?.pendingChanges)
+        ? (convo!.pendingChanges as unknown as PendingChange[])
+        : [];
+      const entry: PendingChange = {
+        id: randomUUID(),
+        kind,
+        payload,
+        summary,
+        createdAt: new Date().toISOString(),
+      };
+      await tx.creatorConversation.update({
+        where: { id: ctx.conversationId },
+        data: { pendingChanges: [...queue, entry] as unknown as object },
       });
       // Aura.current is a plain Int — Prisma's `decrement` returns the
       // post-decrement row, so a single read tells us if we went
@@ -60,9 +78,9 @@ async function stageChange(
         throw new AuraEmptyError();
       }
       return {
-        changeId: change.id,
-        kind: change.kind,
-        summary: change.summary,
+        changeId: entry.id,
+        kind,
+        summary,
         auraRemaining: aura.current,
       };
     });

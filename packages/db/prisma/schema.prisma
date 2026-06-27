@@ -485,11 +485,17 @@ model CreatorConversation {
   // "active" | "cleared". Only one row per (townId, userId) is "active"
   // at any time; the route handler upserts on first turn.
   status    String   @default("active")
+  // Pending mutation queue for this conversation. Each entry mirrors a
+  // tool call the agent made:
+  //   { id, kind, payload, summary, createdAt }
+  // Mutation tools append to this array (and decrement Aura) in the same
+  // transaction. The Approve flow drains it locally → /api/town deploy;
+  // Clear sets it back to [].
+  pendingChanges Json @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   messages CreatorMessage[]
-  changes  CreatorChange[]
 
   @@index([townId, status])
   @@index([userId, status])
@@ -510,21 +516,3 @@ model CreatorMessage {
   @@index([conversationId, createdAt])
 }
 
-// Pending mutation queued by a chat tool call. The creator never mutates
-// the live town directly — every add/update/delete becomes a CreatorChange
-// row, the player reviews them in the diff view, and the apply step
-// drains the queue into a single `/api/town?from=creator` POST.
-//
-// `kind` mirrors the tool name; `payload` is the tool input verbatim so
-// the apply step can rebuild the TownShape without consulting the tool.
-model CreatorChange {
-  id             String              @id @default(cuid())
-  conversationId String
-  conversation   CreatorConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  kind           String                                                                  // see header for the enum
-  payload        Json
-  summary        String
-  createdAt      DateTime            @default(now())
-
-  @@index([conversationId, createdAt])
-}

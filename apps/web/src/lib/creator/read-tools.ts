@@ -33,7 +33,7 @@ export const getCurrentTownTool = (ctx: ToolContext) =>
       "Get the current state of the town being edited (buildings + NPCs + aura) and this conversation's pending diff.",
     inputSchema: z.object({}),
     execute: async () => {
-      const [town, aura, plot, npcs, changes] = await Promise.all([
+      const [town, aura, plot, npcs, convo] = await Promise.all([
         ctx.prisma.town.findUnique({
           where: { id: ctx.townId },
           select: { id: true, slug: true, name: true, status: true },
@@ -50,11 +50,19 @@ export const getCurrentTownTool = (ctx: ToolContext) =>
             description: true,
           },
         }),
-        ctx.prisma.creatorChange.findMany({
-          where: { conversationId: ctx.conversationId },
-          orderBy: { createdAt: "asc" },
+        ctx.prisma.creatorConversation.findUnique({
+          where: { id: ctx.conversationId },
+          select: { pendingChanges: true },
         }),
       ]);
+      const changes = Array.isArray(convo?.pendingChanges)
+        ? (convo!.pendingChanges as Array<{
+            id: string;
+            kind: string;
+            payload: object;
+            summary: string;
+          }>)
+        : [];
       // PlotRow.json is the persisted Plot blob; we only surface
       // building-level fields the model needs to reason about edits.
       const plotJson = plot?.json as

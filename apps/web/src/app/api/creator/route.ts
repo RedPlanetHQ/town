@@ -8,8 +8,9 @@
 //   • action="clear-conversation" → marks the active CreatorConversation
 //     row "cleared" and opens a fresh one. Returns the new id; history is
 //     preserved for audit.
-//   • action="clear-changes" → drops the pending CreatorChange queue for
-//     the active conversation. Returns the conversation id.
+//   • action="clear-changes" → clears the active conversation's
+//     pendingChanges JSON array (kept on the conversation row itself —
+//     see schema.prisma). Returns the conversation id.
 //   • Otherwise → debits TURN_COST aura, replays the conversation's
 //     stored messages, appends the new user turn, and streams an
 //     assistant reply via streamText() with the read + mutation tool
@@ -83,24 +84,28 @@ export async function GET(req: Request) {
     });
   }
 
-  const [messages, changes, aura] = await Promise.all([
+  const [messages, aura] = await Promise.all([
     prisma.creatorMessage.findMany({
       where: { conversationId: convo.id },
       orderBy: { createdAt: "asc" },
       select: { id: true, role: true, content: true, createdAt: true },
     }),
-    prisma.creatorChange.findMany({
-      where: { conversationId: convo.id },
-      orderBy: { createdAt: "asc" },
-      select: { id: true, kind: true, payload: true, summary: true },
-    }),
     prisma.aura.findUnique({ where: { townId: r.townId } }),
   ]);
+
+  const pending = Array.isArray(convo.pendingChanges)
+    ? (convo.pendingChanges as Array<{
+        id: string;
+        kind: string;
+        payload: object;
+        summary: string;
+      }>)
+    : [];
 
   return NextResponse.json({
     conversationId: convo.id,
     messages,
-    pendingChanges: changes,
+    pendingChanges: pending,
     aura: aura
       ? { current: aura.current, max: aura.max }
       : { current: 1000, max: 1000 },
@@ -158,8 +163,9 @@ export async function POST(req: Request) {
   // model loses the staged changes from its own perspective on the next
   // get_current_town call.
   if (body.action === "clear-changes") {
-    await prisma.creatorChange.deleteMany({
-      where: { conversationId: convo.id },
+    await prisma.creatorConversation.update({
+      where: { id: convo.id },
+      data: { pendingChanges: [] as unknown as object },
     });
     return NextResponse.json({
       conversationId: convo.id,
