@@ -27,6 +27,7 @@
 
 import React, { useCallback, useEffect, useReducer, useState } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
+import Spinner from "ink-spinner";
 
 import { DiffModal, type PendingChange } from "./diff-modal.js";
 import { PendingRibbon } from "./pending-ribbon.js";
@@ -69,7 +70,8 @@ export type ChatRow =
   | { type: "user"; text: string }
   | { type: "assistant"; text: string }
   | { type: "tool"; call: ToolCallState }
-  | { type: "system"; text: string };
+  | { type: "system"; text: string }
+  | { type: "error"; text: string };
 
 // -----------------------------------------------------------------------------
 // Internal state machine
@@ -267,10 +269,7 @@ function applyChunk(state: State, chunk: StreamChunk): State {
     case "error":
       return {
         ...state,
-        rows: [
-          ...state.rows,
-          { type: "system", text: `error: ${chunk.errorText}` },
-        ],
+        rows: [...state.rows, { type: "error", text: chunk.errorText }],
       };
     default:
       return state;
@@ -406,7 +405,7 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
         dispatch({
           type: "append-row",
           row: {
-            type: "system",
+            type: "error",
             text: `stream failed: ${err instanceof Error ? err.message : String(err)}`,
           },
         });
@@ -538,8 +537,13 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
             expanded={row.type === "tool" ? state.toolsExpanded : false}
           />
         ))}
-        {state.mode === "streaming" ? (
-          <Text dimColor>…streaming</Text>
+        {showThinking(state) ? (
+          <Box>
+            <Text color="cyan">
+              <Spinner type="dots" />
+            </Text>
+            <Text dimColor> Thinking…</Text>
+          </Box>
         ) : null}
       </Box>
       {state.mode === "diff" ? (
@@ -607,13 +611,34 @@ function ChatRowView({
   if (row.type === "tool") {
     return <ToolCallView call={row.call} expanded={expanded} />;
   }
-  // System rows — slash-command output, hints, errors. Errors get red
-  // chrome handled inline (see streamFailure rendering path).
+  if (row.type === "error") {
+    // Stream / SDK errors get a hard red bubble so they stand out
+    // against the rest of the dim chrome.
+    return (
+      <Box marginBottom={1}>
+        <Text backgroundColor="red" color="white">
+          {" ✗ "}
+          {row.text}
+          {" "}
+        </Text>
+      </Box>
+    );
+  }
+  // System rows — slash-command output, /help, conversation cleared, etc.
   return (
     <Box marginBottom={1}>
       <Text color="yellow">{row.text}</Text>
     </Box>
   );
+}
+
+/** Show the thinking indicator while the SSE stream is open and no
+ *  assistant content has landed yet. Once the first text-delta or
+ *  tool-input chunk appends a row past the user bubble, hide it. */
+function showThinking(state: State): boolean {
+  if (state.mode !== "streaming") return false;
+  const last = state.rows[state.rows.length - 1];
+  return !last || last.type === "user";
 }
 
 function helpText(): string {
