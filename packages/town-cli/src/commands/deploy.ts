@@ -170,7 +170,17 @@ async function uploadLocalSprites(
   };
 }
 
-async function runDeploy(opts: { dir?: string; reflow?: boolean }): Promise<void> {
+export interface RunDeployOpts {
+  dir?: string;
+  reflow?: boolean;
+  /** Internal — appended to /api/town as `?from=creator` so the server
+   *  brackets the deploy in a renovating/active status flip. The chat
+   *  surface's approve flow sets this; ordinary `town deploy` leaves
+   *  it undefined. */
+  from?: "creator";
+}
+
+export async function runDeploy(opts: RunDeployOpts): Promise<void> {
   p.intro(chalk.bgCyan(chalk.black(" town deploy ")));
 
   const cfg = getConfig();
@@ -259,9 +269,13 @@ async function runDeploy(opts: { dir?: string; reflow?: boolean }): Promise<void
   spinner.start(
     opts.reflow ? "Uploading town (re-laying out)…" : "Uploading town…",
   );
-  const url = opts.reflow
-    ? `${townUrl}/api/town?reflow=1`
-    : `${townUrl}/api/town`;
+  // Compose any active query params: ?reflow=1 (rewind layout) and/or
+  // ?from=creator (status flip for the chat-creator approve flow).
+  const params = new URLSearchParams();
+  if (opts.reflow) params.set("reflow", "1");
+  if (opts.from) params.set("from", opts.from);
+  const qs = params.toString();
+  const url = qs ? `${townUrl}/api/town?${qs}` : `${townUrl}/api/town`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
