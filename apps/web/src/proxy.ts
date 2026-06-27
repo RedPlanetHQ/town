@@ -1,11 +1,12 @@
 // Persist the most recently visited town slug as a cookie so the root
 // `/` route can redirect signed-in owners back to where they were.
 //
-// Next.js 15 disallows cookie writes from Server Component render, so
-// this work moves to middleware. It fires on every request matching the
-// matcher below; we only set the cookie when the URL is a single-segment
-// path (a town slug). `getActiveTownForUser` re-validates ownership at
-// read time, so writing for non-owners is harmless.
+// Next.js disallows cookie writes from Server Component render, so this
+// work moves to the proxy (formerly middleware). It fires on every
+// request matching the matcher below; we only set the cookie when the
+// URL is a single-segment path (a town slug). `getActiveTownForUser`
+// re-validates ownership at read time, so writing for non-owners is
+// harmless.
 //
 // Excluded by matcher: _next assets, api, items, static files with a
 // dot in the basename.
@@ -16,7 +17,7 @@ import { ACTIVE_SLUG_COOKIE } from "@/lib/active-slug";
 
 const THIRTY_DAYS = 60 * 60 * 24 * 30;
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const segs = req.nextUrl.pathname.split("/").filter(Boolean);
   // Only single-segment paths can be town slugs.
   if (segs.length !== 1) return NextResponse.next();

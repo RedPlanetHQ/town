@@ -96,8 +96,8 @@ export default async function TownPage({
   const isOwner = !!session && session.user.id === town.ownerId;
 
   if (isOwner) {
-    // The active-slug cookie is set in middleware (Next 15 disallows
-    // cookie writes during Server Component render).
+    // The active-slug cookie is set in apps/web/src/proxy.ts (Next.js
+    // disallows cookie writes during Server Component render).
     const owner = await prisma.user.findUnique({
       where: { id: town.ownerId },
       select: { character: true, name: true },

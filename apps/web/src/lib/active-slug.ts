@@ -1,7 +1,7 @@
 // Persistent "which town is this user looking at?" cookie. Read on
 // the root `/` route to choose the redirect target. The cookie is
-// written by `apps/web/src/middleware.ts` on every /{slug} visit, since
-// Next.js 15 disallows cookie writes from Server Component render.
+// written by `apps/web/src/proxy.ts` on every /{slug} visit, since
+// Next.js disallows cookie writes from Server Component render.
 //
 // Path `/`, SameSite=Lax, HttpOnly, Secure in production, 30-day TTL.
 
