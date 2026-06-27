@@ -20,6 +20,7 @@ import { resolveUser } from "@/lib/auth-bearer";
 import { prisma } from "@/lib/db";
 import { loadManifest } from "@/lib/manifest";
 import { normalizePermissions } from "@/lib/npc-templates";
+import { getTownBySlug, getTownsByOwner } from "@/lib/town";
 import {
   applyTownShape,
   getTownShape,
@@ -29,6 +30,40 @@ import { assertSafeSvg } from "@/lib/town-tools";
 import { IncrementalError } from "@town/plot-gen";
 import type { CustomPlot, Plot } from "@town/plot";
 import { validatePlot } from "@town/plot";
+
+type SlugResolution =
+  | { ok: true; townId: string; slug: string }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
+async function resolveTownForOwner(
+  req: Request,
+  ownerId: string,
+): Promise<SlugResolution> {
+  const url = new URL(req.url);
+  const explicit = url.searchParams.get("slug");
+  if (explicit) {
+    const town = await getTownBySlug(explicit);
+    if (!town || town.ownerId !== ownerId) {
+      return { ok: false, status: 404, body: { error: "town-not-found" } };
+    }
+    return { ok: true, townId: town.id, slug: town.slug };
+  }
+  const owned = await getTownsByOwner(ownerId);
+  if (owned.length === 0) {
+    return { ok: false, status: 404, body: { error: "no-towns" } };
+  }
+  if (owned.length > 1) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        error: "missing-slug",
+        slugs: owned.map((t) => t.slug),
+      },
+    };
+  }
+  return { ok: true, townId: owned[0]!.id, slug: owned[0]!.slug };
+}
 
 const NpcSchema = z.object({
   buildingId: z.string().min(1),
@@ -176,12 +211,12 @@ export async function GET(req: Request) {
   if (!resolved) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const { shape, version, npcs } = await getTownShape(resolved.user.id);
-  // The catalog lives on the Town row, not the plot. Fetch in parallel
-  // with the shape so `town clone` can hydrate the local items/ dir and
-  // the inline `tags` array on town.json.
+  const r = await resolveTownForOwner(req, resolved.user.id);
+  if (!r.ok) return NextResponse.json(r.body, { status: r.status });
+
+  const { shape, version, npcs } = await getTownShape(r.townId);
   const town = await prisma.town.findUnique({
-    where: { ownerId: resolved.user.id },
+    where: { id: r.townId },
     select: { catalogJson: true },
   });
   return NextResponse.json({
@@ -227,7 +262,10 @@ export async function POST(req: Request) {
     }
   }
 
-  const userId = resolved.user.id;
+  const r = await resolveTownForOwner(req, resolved.user.id);
+  if (!r.ok) return NextResponse.json(r.body, { status: r.status });
+  const townId = r.townId;
+
   const input: TownShape = {
     buildings: parsed.buildings,
     customPlots: (parsed.customPlots ?? []) as CustomPlot[],
@@ -241,14 +279,14 @@ export async function POST(req: Request) {
   // wider than the postcard can frame.
   const url = new URL(req.url);
   if (url.searchParams.get("reflow") === "1") {
-    await prisma.plotRow.delete({ where: { userId } }).catch(() => {
+    await prisma.plotRow.delete({ where: { townId } }).catch(() => {
       // No row to drop — first deploy was about to happen anyway.
     });
   }
 
   let applied;
   try {
-    applied = await applyTownShape(userId, input);
+    applied = await applyTownShape(townId, input);
   } catch (e) {
     if (e instanceof IncrementalError) {
       return NextResponse.json(
@@ -267,43 +305,22 @@ export async function POST(req: Request) {
     );
   }
 
-  // NPC roster replace + catalog persist run together: either the
-  // deploy lands the whole content snapshot, or neither does. Without
-  // this we could end up with mismatched permissions in the NPC rows
-  // pointing at catalog ids that the catalog write later failed to
-  // persist.
-  //
-  // The catalog write is `update` (not updateMany) so a missing Town
-  // row throws — the original updateMany silently succeeded with 0
-  // rows, which the CLI would show as a successful deploy with no
-  // visible effect. Onboarding creates the Town row before the first
-  // deploy, so the only way to hit the throw is to PAT-deploy without
-  // having finished onboarding; we surface that as a clear error.
   let npcCount = 0;
   try {
     const result = await prisma.$transaction(async (tx) => {
       let count = 0;
       if (parsed.npcs && parsed.npcs.length >= 0) {
-        await tx.npc.deleteMany({ where: { userId } });
+        await tx.npc.deleteMany({ where: { townId } });
         if (parsed.npcs.length > 0) {
           const created = await tx.npc.createMany({
             data: parsed.npcs.map((n) => ({
               ...(n.id ? { id: n.id } : {}),
-              userId,
+              townId,
               buildingId: n.buildingId,
               slotId: n.slotId,
               name: n.name,
               description: n.description,
               prompt: n.prompt,
-              // Always run incoming permissions through the normaliser
-              // (drops unknown keys, coerces types). Absent in the body
-              // → leave the field off so the nullable JSONB column lands
-              // as null, which the chat runtime treats as "no tools"
-              // rather than carrying over a stale grant.
-              // Prisma's JSONB inputs want a generic InputJsonObject; the
-              // strict NpcPermissions interface doesn't carry the required
-              // index signature, so we cast through `object` the same way
-              // PlotRow handles its `json` blob.
               ...(n.permissions !== undefined
                 ? {
                     permissions: normalizePermissions(
@@ -317,12 +334,8 @@ export async function POST(req: Request) {
         }
       }
       if (parsed.catalog) {
-        // Throws P2025 when no Town row matches — caught below and
-        // surfaced as "no-town-row". Don't use updateMany here: silently
-        // succeeding with 0 rows turned out to be a UX trap (deploy
-        // reports OK, catalog never lands).
         await tx.town.update({
-          where: { ownerId: userId },
+          where: { id: townId },
           data: { catalogJson: parsed.catalog as unknown as object },
         });
       }
@@ -336,7 +349,7 @@ export async function POST(req: Request) {
         {
           error: "no-town-row",
           detail:
-            "This user has no Town row to attach the catalog to. Finish onboarding first.",
+            "Could not find the town. Did the slug resolve correctly?",
         },
         { status: 409 },
       );
