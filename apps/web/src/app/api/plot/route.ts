@@ -1,12 +1,15 @@
 // /api/plot — read + write a plot.
 //
-//   GET  /api/plot                 → signed-in user's own plot
+//   GET  /api/plot                 → caller's own plot (single town only)
+//   GET  /api/plot?slug=<slug>     → caller's plot for that slug (multi-town
+//                                    callers MUST supply this)
 //   GET  /api/plot?probe=1         → just the version (cheap polling)
 //   GET  /api/plot?town=<slug>     → that town's plot (owner OR valid
 //                                    visitor-cookie holder). Read-only —
 //                                    POST always targets the caller's own
 //                                    plot.
-//   POST /api/plot { plot }        → replace caller's plot
+//   POST /api/plot { plot }        → replace caller's plot (use ?slug= to
+//                                    pick when the caller owns N towns)
 //
 // Visitors gain access by passing the share code through /api/towns/{slug}/visit,
 // which drops a per-slug cookie. We never gate on that cookie's payload —
@@ -16,14 +19,14 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { resolveUser } from "@/lib/auth-bearer";
-import { prisma } from "@/lib/db";
 import { loadManifest } from "@/lib/manifest";
 import {
   getPlotForTown,
   savePlotForTown,
   getPlotVersionForTown,
 } from "@/lib/plot";
-import { getTownBySlug, getTownsByOwner } from "@/lib/town";
+import { resolveTownForOwner } from "@/lib/resolve-town";
+import { getTownBySlug } from "@/lib/town";
 import { parseVisitorCookie, visitorCookieName } from "@/lib/town-code";
 import type { Plot } from "@town/plot";
 import { validatePlot } from "@town/plot";
@@ -62,16 +65,13 @@ export async function GET(req: Request) {
   if (!resolved) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const owned = await getTownsByOwner(resolved.user.id);
-  if (owned.length === 0) {
-    return NextResponse.json({ error: "no-town" }, { status: 404 });
-  }
-  const own = owned[0]!;
+  const r = await resolveTownForOwner(req, resolved.user.id);
+  if (!r.ok) return NextResponse.json(r.body, { status: r.status });
   if (isProbe) {
-    const version = await getPlotVersionForTown(own.id);
+    const version = await getPlotVersionForTown(r.townId);
     return NextResponse.json({ version });
   }
-  const { plot, version } = await getPlotForTown(own.id);
+  const { plot, version } = await getPlotForTown(r.townId);
   return NextResponse.json({ plot, version });
 }
 
@@ -97,14 +97,8 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const own = await prisma.town.findFirst({
-    where: { ownerId: resolved.user.id },
-    orderBy: { updatedAt: "desc" },
-    select: { id: true },
-  });
-  if (!own) {
-    return NextResponse.json({ error: "no-town" }, { status: 404 });
-  }
-  const { version } = await savePlotForTown(own.id, plot);
+  const r = await resolveTownForOwner(req, resolved.user.id);
+  if (!r.ok) return NextResponse.json(r.body, { status: r.status });
+  const { version } = await savePlotForTown(r.townId, plot);
   return NextResponse.json({ version });
 }

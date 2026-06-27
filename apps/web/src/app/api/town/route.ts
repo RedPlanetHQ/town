@@ -20,7 +20,7 @@ import { resolveUser } from "@/lib/auth-bearer";
 import { prisma } from "@/lib/db";
 import { loadManifest } from "@/lib/manifest";
 import { normalizePermissions } from "@/lib/npc-templates";
-import { getTownBySlug, getTownsByOwner } from "@/lib/town";
+import { resolveTownForOwner } from "@/lib/resolve-town";
 import {
   applyTownShape,
   getTownShape,
@@ -30,40 +30,6 @@ import { assertSafeSvg } from "@/lib/town-tools";
 import { IncrementalError } from "@town/plot-gen";
 import type { CustomPlot, Plot } from "@town/plot";
 import { validatePlot } from "@town/plot";
-
-type SlugResolution =
-  | { ok: true; townId: string; slug: string }
-  | { ok: false; status: number; body: Record<string, unknown> };
-
-async function resolveTownForOwner(
-  req: Request,
-  ownerId: string,
-): Promise<SlugResolution> {
-  const url = new URL(req.url);
-  const explicit = url.searchParams.get("slug");
-  if (explicit) {
-    const town = await getTownBySlug(explicit);
-    if (!town || town.ownerId !== ownerId) {
-      return { ok: false, status: 404, body: { error: "town-not-found" } };
-    }
-    return { ok: true, townId: town.id, slug: town.slug };
-  }
-  const owned = await getTownsByOwner(ownerId);
-  if (owned.length === 0) {
-    return { ok: false, status: 404, body: { error: "no-towns" } };
-  }
-  if (owned.length > 1) {
-    return {
-      ok: false,
-      status: 400,
-      body: {
-        error: "missing-slug",
-        slugs: owned.map((t) => t.slug),
-      },
-    };
-  }
-  return { ok: true, townId: owned[0]!.id, slug: owned[0]!.slug };
-}
 
 const NpcSchema = z.object({
   buildingId: z.string().min(1),
