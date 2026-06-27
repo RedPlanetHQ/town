@@ -20,13 +20,19 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/provider-utils": "^4.0.29",
     "@clack/prompts": "^1.0.1",
+    "ai": "^6.0.205",
     "chalk": "^5.3.0",
     "commander": "^12.1.0",
-    "gray-matter": "^4.0.3"
+    "gray-matter": "^4.0.3",
+    "ink": "^5.2.1",
+    "react": "^18.3.1",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/react": "^18.3.12",
     "tsx": "^4.0.0",
     "typescript": "^5"
   }
