@@ -186,6 +186,7 @@ export async function GET(req: Request) {
     select: { catalogJson: true },
   });
   return NextResponse.json({
+    id: r.townId,
     buildings: shape.buildings,
     customPlots: shape.customPlots,
     npcs,
