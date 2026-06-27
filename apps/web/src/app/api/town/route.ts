@@ -1,8 +1,9 @@
 // /api/town — high-level read/write of the caller's town.
 //
-//   GET  /api/town                  → { buildings, customPlots, npcs, version }
-//   POST /api/town { buildings, customPlots?, npcs? }
+//   GET    /api/town                → { buildings, customPlots, npcs, version }
+//   POST   /api/town { buildings, customPlots?, npcs? }
 //                                   → { version, count }
+//   DELETE /api/town?slug=<slug>    → { ok: true, slug }
 //
 // The CLI's `town clone` / `town deploy` go through here. /api/plot
 // stays around as the raw-plot escape hatch for power users and the
@@ -350,4 +351,33 @@ export async function POST(req: Request) {
     version: applied.version,
     count: npcCount,
   });
+}
+
+// DELETE /api/town?slug=<slug>
+//
+// Hard-deletes the caller's town. The Prisma schema cascades the row
+// into Aura, PlotRow, Npc, Conversation (+ ConversationParticipant /
+// Message), PlotSuggestion, and CreatorConversation (which cascades to
+// CreatorMessage). Sprite rows are user-scoped, so they survive — a
+// re-created town under the same slug can reuse the user's sprite
+// library without needing a re-upload.
+export async function DELETE(req: Request) {
+  const resolved = await resolveUser(req);
+  if (!resolved) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const url = new URL(req.url);
+  const slug = url.searchParams.get("slug");
+  if (!slug) {
+    return NextResponse.json({ error: "missing-slug" }, { status: 400 });
+  }
+  const town = await prisma.town.findUnique({ where: { slug } });
+  if (!town) {
+    return NextResponse.json({ error: "town-not-found" }, { status: 404 });
+  }
+  if (town.ownerId !== resolved.user.id) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  await prisma.town.delete({ where: { id: town.id } });
+  return NextResponse.json({ ok: true, slug });
 }
