@@ -80,22 +80,51 @@ export async function resolveUser(req: Request): Promise<ResolvedUser | null> {
   const me = await fetchCoreMe(pat);
   if (!me) return null;
 
-  // Upsert by coreUserId so repeat hits with the same PAT find the same
-  // town User row, and a name/email change on the CORE side flows through.
-  const row = await prisma.user.upsert({
-    where: { coreUserId: me.id },
-    create: {
-      coreUserId: me.id,
-      email: me.email ?? "",
-      name: me.name ?? "",
-      workspaceId: me.workspaceId ?? null,
-    },
-    update: {
-      email: me.email ?? undefined,
-      name: me.name ?? undefined,
-      workspaceId: me.workspaceId ?? undefined,
-    },
-  });
+  // Upsert by (coreUserId, workspaceId) so repeat hits with the same PAT
+  // find the same town User row, and a name/email change on the CORE side
+  // flows through. Includes the one-shot grace path that adopts a pre-
+  // migration row (workspaceId=null) into the current workspace.
+  const workspaceId = me.workspaceId ?? null;
+  const email = me.email ?? "";
+  const name = me.name ?? "";
+
+  let row;
+  if (workspaceId) {
+    const legacy = await prisma.user.findFirst({
+      where: { coreUserId: me.id, workspaceId: null },
+    });
+    if (legacy) {
+      row = await prisma.user.update({
+        where: { id: legacy.id },
+        data: { workspaceId, email, name },
+      });
+    } else {
+      row = await prisma.user.upsert({
+        where: {
+          coreUserId_workspaceId: { coreUserId: me.id, workspaceId },
+        },
+        create: { coreUserId: me.id, workspaceId, email, name },
+        update: { email, name },
+      });
+    }
+  } else {
+    // workspaceId not provided by CORE — Prisma's compound unique input
+    // doesn't accept null, so fall back to findFirst + create/update for
+    // the legacy "no workspace" code path.
+    const existing = await prisma.user.findFirst({
+      where: { coreUserId: me.id, workspaceId: null },
+    });
+    if (existing) {
+      row = await prisma.user.update({
+        where: { id: existing.id },
+        data: { email, name },
+      });
+    } else {
+      row = await prisma.user.create({
+        data: { coreUserId: me.id, workspaceId: null, email, name },
+      });
+    }
+  }
 
   return {
     user: {

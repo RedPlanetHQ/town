@@ -64,20 +64,50 @@ export async function GET(req: NextRequest) {
     return redirectToError(req, "CORE userinfo missing sub");
   }
 
-  const user = await prisma.user.upsert({
-    where: { coreUserId: info.sub },
-    create: {
-      coreUserId: info.sub,
-      email: info.email ?? "",
-      name: info.name ?? info.preferred_username ?? "Traveler",
-      workspaceId: info.workspace_id ?? null,
-    },
-    update: {
-      email: info.email ?? undefined,
-      name: info.name ?? info.preferred_username ?? undefined,
-      workspaceId: info.workspace_id ?? undefined,
-    },
-  });
+  const workspaceId = info.workspace_id ?? null;
+  const email = info.email ?? "";
+  const name = info.name ?? info.preferred_username ?? "Traveler";
+
+  let user;
+  if (workspaceId) {
+    // One-shot grace: adopt this login's workspace into the
+    // pre-migration row instead of creating a duplicate. Only
+    // fires until the row's workspaceId is filled.
+    const legacy = await prisma.user.findFirst({
+      where: { coreUserId: info.sub, workspaceId: null },
+    });
+    if (legacy) {
+      user = await prisma.user.update({
+        where: { id: legacy.id },
+        data: { workspaceId, email, name },
+      });
+    } else {
+      user = await prisma.user.upsert({
+        where: {
+          coreUserId_workspaceId: { coreUserId: info.sub, workspaceId },
+        },
+        create: { coreUserId: info.sub, workspaceId, email, name },
+        update: { email, name },
+      });
+    }
+  } else {
+    // workspaceId not provided by CORE — Prisma's compound unique input
+    // doesn't accept null, so fall back to findFirst + create/update for
+    // the legacy "no workspace" code path.
+    const existing = await prisma.user.findFirst({
+      where: { coreUserId: info.sub, workspaceId: null },
+    });
+    if (existing) {
+      user = await prisma.user.update({
+        where: { id: existing.id },
+        data: { email, name },
+      });
+    } else {
+      user = await prisma.user.create({
+        data: { coreUserId: info.sub, workspaceId: null, email, name },
+      });
+    }
+  }
 
   const session = await createSession({ userId: user.id, tokens });
   await setSessionCookie(session.id);
