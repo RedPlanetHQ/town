@@ -18,6 +18,8 @@ import { registerLogin } from "./commands/login.js";
 import { registerInit } from "./commands/init.js";
 import { registerDeploy } from "./commands/deploy.js";
 import { registerNew, launchChat } from "./commands/new.js";
+import { registerClone } from "./commands/clone.js";
+import { registerCatalog } from "./commands/catalog.js";
 
 import { getConfig } from "./config.js";
 import { readTownJson } from "./shared/town-io.js";
@@ -27,12 +29,14 @@ const program = new Command();
 program
   .name("town")
   .description("Edit your town plot from the command line.")
-  .version("0.1.11");
+  .version("0.2.0");
 
 registerLogin(program);
 registerInit(program);
 registerDeploy(program);
 registerNew(program);
+registerClone(program);
+registerCatalog(program);
 
 // Bare `town`: if we're inside a town folder, drop into the chat
 // surface. Otherwise fall through to Commander's default help.
