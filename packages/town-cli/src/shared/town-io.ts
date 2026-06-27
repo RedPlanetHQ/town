@@ -111,6 +111,13 @@ export interface TownItemBundle extends TownItemDef {
 }
 
 export interface TownJson {
+  /** Server-side town id, written by `town new` / `town clone` so that
+   *  later commands (deploy, creator chat) can resolve back to the
+   *  authoritative town without depending on the folder name matching a
+   *  slug. Optional for back-compat with folders scaffolded before
+   *  multi-town support landed. Placed first when written so it's the
+   *  first thing a human reading town.json sees. */
+  id?: string;
   buildings: TownBuilding[];
   /** May be omitted at the top level — deploy looks under
    *  `customPlots/<id>/plot.json` for the canonical definitions and
@@ -158,7 +165,17 @@ export async function readTownJson(dir: string): Promise<TownJson> {
 }
 
 export async function writeTownJson(dir: string, town: TownJson): Promise<void> {
-  await writeJson(join(dir, "town.json"), town);
+  // Re-order so `id` is the first key when present — matches the
+  // human-readability expectation in TownJson's doc comment.
+  const ordered: TownJson = town.id !== undefined
+    ? {
+        id: town.id,
+        buildings: town.buildings,
+        ...(town.customPlots !== undefined ? { customPlots: town.customPlots } : {}),
+        ...(town.tags !== undefined ? { tags: town.tags } : {}),
+      }
+    : town;
+  await writeJson(join(dir, "town.json"), ordered);
 }
 
 /** Parse a slotId hint from an MDX filename. We use the convention

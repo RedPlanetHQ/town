@@ -17,24 +17,16 @@
 import { Command } from "commander";
 import * as p from "@clack/prompts";
 import chalk from "chalk";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve } from "node:path";
 
 import { getConfig } from "../config.js";
-import { townFolderReadme } from "../shared/readme.js";
-import { fetchCoreWorkspace, writeDefaultNpcs } from "../shared/seed-npcs.js";
 import {
-  writeCustomPlot,
-  writeItemsDir,
-  writeNpcMdx,
-  writeTownJson,
-  type CustomPlotDTO,
-  type NpcDTO,
-  type TownBuilding,
-  type TownItemBundle,
-  type TownTagDef,
-} from "../shared/town-io.js";
+  cloneExisting,
+  ensureSlugDir,
+  getJson,
+  postJson,
+  scaffoldNew,
+} from "../shared/scaffold.js";
 
 interface TownsMeResponse {
   town: { id: string; slug: string; name: string } | null;
@@ -42,170 +34,6 @@ interface TownsMeResponse {
 
 interface TownsMeCreate {
   town: { id: string; slug: string; name: string };
-}
-
-interface TownsMeError {
-  error?: string;
-}
-
-interface TownGetResponse {
-  buildings: TownBuilding[];
-  customPlots: CustomPlotDTO[];
-  npcs: Array<NpcDTO & { id: string }>;
-  version: number;
-  /** Per-town catalog — tags + SVG item templates. Absent when the town
-   *  hasn't authored one. Tags get inlined into town.json; items get
-   *  written as manifest.json + sibling .svg files. */
-  catalog?: {
-    tags: TownTagDef[];
-    items: TownItemBundle[];
-  };
-}
-
-interface DefaultBuilding {
-  id: string;
-  plotKey: string;
-}
-
-const DEFAULT_BUILDINGS: DefaultBuilding[] = [
-  { id: "home", plotKey: "home" },
-  { id: "library", plotKey: "library" },
-  { id: "store", plotKey: "store" },
-];
-
-async function getJson<T>(url: string, pat: string): Promise<T> {
-  const res = await fetch(url, {
-    headers: { authorization: `Bearer ${pat}` },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(`GET ${url} → ${res.status} ${await res.text()}`);
-  }
-  return (await res.json()) as T;
-}
-
-async function postJson<T>(url: string, pat: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${pat}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    let parsed: TownsMeError = {};
-    try {
-      parsed = (await res.json()) as TownsMeError;
-    } catch {
-      // ignore
-    }
-    throw new Error(
-      `POST ${url} → ${res.status} ${parsed.error ?? "unknown error"}`,
-    );
-  }
-  return (await res.json()) as T;
-}
-
-async function ensureSlugDir(targetDir: string, slug: string): Promise<void> {
-  if (!existsSync(targetDir)) {
-    await mkdir(targetDir, { recursive: true });
-    return;
-  }
-  const entries = await readdir(targetDir);
-  const reserved = new Set([
-    "town.json",
-    "plot.json",
-    "README.md",
-    // legacy filenames the older CLI used to drop here — keep them in
-    // the conflict set so re-running over an old folder still prompts.
-    "AGENTS.md",
-    "catalog.json",
-    "manifest.json",
-    "npcs",
-    "customPlots",
-  ]);
-  const conflicts = entries.filter((e) => reserved.has(e));
-  if (conflicts.length === 0) return;
-  const ok = (await p.confirm({
-    message: `${slug}/ already has ${conflicts.join(", ")} — overwrite?`,
-    initialValue: false,
-  })) as boolean;
-  if (!ok) {
-    p.cancel("Aborted");
-    process.exit(1);
-  }
-}
-
-async function scaffoldNew(
-  pat: string,
-  targetDir: string,
-  coreUrl: string,
-): Promise<void> {
-  await writeTownJson(targetDir, {
-    buildings: DEFAULT_BUILDINGS,
-  });
-  await mkdir(join(targetDir, "customPlots"), { recursive: true });
-
-  // Default NPC roster — Hudson at home, Lior at the library, Sera at
-  // the store. HOME's butler name is bound to the resident's CORE
-  // workspace when we can fetch it; this matches the runtime override
-  // the renderer applies, so the editable name in the .mdx file lines
-  // up with what the player sees in-game from day zero.
-  const spinner = p.spinner();
-  spinner.start("Fetching workspace name…");
-  const workspace = await fetchCoreWorkspace(coreUrl, pat);
-  spinner.stop(
-    workspace
-      ? chalk.green(`Butler name set to ${workspace.name}`)
-      : chalk.yellow("Workspace lookup skipped — butler defaults to Hudson"),
-  );
-  await writeDefaultNpcs(targetDir, workspace?.name ?? null);
-
-  await writeFile(join(targetDir, "README.md"), townFolderReadme());
-}
-
-async function cloneExisting(
-  townUrl: string,
-  pat: string,
-  targetDir: string,
-): Promise<TownGetResponse> {
-  const spinner = p.spinner();
-  spinner.start("Fetching town…");
-  const town = await getJson<TownGetResponse>(`${townUrl}/api/town`, pat);
-  const catalogTags = town.catalog?.tags ?? [];
-  const catalogItems = town.catalog?.items ?? [];
-  spinner.stop(
-    chalk.green(
-      `Fetched town v${town.version} — ${town.buildings.length} building(s), ` +
-        `${town.customPlots.length} customPlot(s), ${town.npcs.length} NPC(s)` +
-        (town.catalog
-          ? `, ${catalogTags.length} tag(s), ${catalogItems.length} item template(s)`
-          : ""),
-    ),
-  );
-
-  // Tags get inlined into town.json so editors see them next to the
-  // buildings list. Items go into items/ as a manifest.json plus one
-  // .svg per template so designers keep file-level workflows.
-  await writeTownJson(targetDir, {
-    buildings: town.buildings,
-    ...(catalogTags.length > 0 ? { tags: catalogTags } : {}),
-  });
-  await mkdir(join(targetDir, "customPlots"), { recursive: true });
-  for (const cp of town.customPlots) {
-    await writeCustomPlot(targetDir, cp);
-  }
-  await mkdir(join(targetDir, "npcs"), { recursive: true });
-  for (const npc of town.npcs) {
-    await writeNpcMdx(targetDir, npc);
-  }
-  if (catalogItems.length > 0) {
-    await writeItemsDir(targetDir, catalogItems);
-  }
-  await writeFile(join(targetDir, "README.md"), townFolderReadme());
-
-  return town;
 }
 
 async function runInit(): Promise<void> {
@@ -296,7 +124,7 @@ async function runInit(): Promise<void> {
   await ensureSlugDir(targetDir, town.slug);
 
   if (mode === "create") {
-    await scaffoldNew(pat, targetDir, cfg.auth.coreUrl);
+    await scaffoldNew(pat, targetDir, cfg.auth.coreUrl, town.id);
     p.log.success(`Scaffolded ./${town.slug}/ with the day-zero trio`);
     p.outro(
       chalk.green(
@@ -304,7 +132,7 @@ async function runInit(): Promise<void> {
       ),
     );
   } else {
-    await cloneExisting(townUrl, pat, targetDir);
+    await cloneExisting(townUrl, pat, targetDir, town.slug, town.id);
     p.log.success(`Cloned town into ./${town.slug}/`);
     p.outro(
       chalk.green(
