@@ -530,6 +530,12 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
   const cols = stdout?.columns ?? 80;
   return (
     <Box flexDirection="column" width={cols}>
+      <Box paddingX={1}>
+        <Text dimColor>
+          {"● "}town v0.2.0  ·  ctrl+c to exit
+        </Text>
+      </Box>
+      <Box height={1} />
       <Box flexDirection="column" marginBottom={1}>
         {state.rows.map((row, i) => (
           <ChatRowView
