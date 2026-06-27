@@ -11,6 +11,7 @@ import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
 import { notFound } from "next/navigation";
 
+import { writeActiveSlug } from "@/lib/active-slug";
 import { OWNER_DEFAULT_CHARACTER } from "@/lib/characters";
 import { prisma } from "@/lib/db";
 import { guestParticipantKey, userParticipantKey } from "@/lib/participant";
@@ -96,6 +97,9 @@ export default async function TownPage({
   const isOwner = !!session && session.user.id === town.ownerId;
 
   if (isOwner) {
+    // Persist the active slug so a subsequent root-redirect lands the
+    // owner back on this town instead of their most-recently-updated one.
+    await writeActiveSlug(town.slug);
     const owner = await prisma.user.findUnique({
       where: { id: town.ownerId },
       select: { character: true, name: true },

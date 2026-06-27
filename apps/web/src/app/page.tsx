@@ -1,14 +1,15 @@
 // Root landing.
 //
-//  • Signed in + has Town → redirect to /{slug}
-//  • Signed in + no Town  → render onboarding (pick name → create Town)
-//  • Not signed in        → guest playground (current TownGame as before)
+//  • Signed in + has Town(s) → redirect to /{active-slug or most-recent}
+//  • Signed in + no Town      → render onboarding (pick name → create Town)
+//  • Not signed in            → guest playground (current TownGame as before)
 
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
+import { readActiveSlug } from "@/lib/active-slug";
 import { getSessionFromCookie } from "@/lib/session";
-import { getTownsByOwner } from "@/lib/town";
+import { getActiveTownForUser } from "@/lib/town";
 import { Landing } from "@/ui/Landing";
 import { Onboarding } from "@/ui/Onboarding";
 
@@ -42,10 +43,9 @@ export const metadata: Metadata = {
 
 export default async function Home() {
   const session = await getSessionFromCookie();
-  if (session) {
-    const towns = await getTownsByOwner(session.user.id);
-    if (towns.length > 0) redirect(`/${towns[0]!.slug}`);
-    return <Onboarding userName={session.user.name} />;
-  }
-  return <Landing />;
+  if (!session) return <Landing />;
+  const cookieSlug = await readActiveSlug();
+  const active = await getActiveTownForUser(session.user.id, cookieSlug);
+  if (active) redirect(`/${active.slug}`);
+  return <Onboarding userName={session.user.name} />;
 }
