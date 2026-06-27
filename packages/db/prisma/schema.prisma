@@ -18,9 +18,15 @@ datasource db {
 // /oauth/userinfo — the stable identity across re-logins and email changes.
 model User {
   id          String   @id @default(cuid())
-  coreUserId  String   @unique
+  // CORE OAuth `sub`. No longer unique by itself; identity is the
+  // composite (coreUserId, workspaceId). The same CORE user signing
+  // into a different workspace produces a fresh User row.
+  coreUserId  String
   email       String
   name        String
+  // CORE workspace this account belongs to. Nullable only for
+  // pre-migration rows; the OAuth callback fills it in on next
+  // login via the one-shot grace path.
   workspaceId String?
   // Sprite key the user appears as in any town they visit. Owner picks
   // this at onboarding (defaults to the postman). One of the keys defined
@@ -34,23 +40,17 @@ model User {
   integrations IntegrationRow[]
   aspects      AspectRow[]
   labels       LabelRow[]
-  plot         PlotRow?
-  npcs         Npc[]
-  town         Town?
+  towns        Town[]
   suggestions  PlotSuggestion[]
   sprites      Sprite[]
 
+  @@unique([coreUserId, workspaceId])
   @@index([email])
 }
 
 // A user's public, shareable town. The slug is the URL segment (e.g.
-// /harshith) and the share code gates non-owner visitors. One town per
-// user for now — when we need multi-town we'll drop the `@unique` on
-// ownerId.
-//
-// Plot is connected here via PlotRow.townId. Onboarding creates the Town
-// and links the user's existing PlotRow (if any) to it, so we don't
-// regenerate the layout for existing users.
+// /harshith) and the share code gates non-owner visitors. A user can own
+// multiple towns; the town's workspace is implicit via owner.workspaceId.
 model Town {
   id            String         @id @default(cuid())
   slug          String         @unique
@@ -58,14 +58,18 @@ model Town {
   // visitor gate ("You're about to enter Harshith's Town") and used as the
   // default panel title.
   name          String
-  ownerId       String         @unique
+  ownerId       String
   owner         User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   // 6-char base32 code rotated via the Share modal's Reset button.
   // Visitors must present this once; we then drop a per-slug cookie so
   // they don't have to re-enter on subsequent visits.
   shareCode     String         @unique
+
+  aura          Aura?
   plot          PlotRow?
+  npcs          Npc[]
   conversations Conversation[]
+  suggestions   PlotSuggestion[]
   // Per-town catalog of visitor tags + SVG item templates. Authored under
   // the town deployment directory (tags inline in town.json, items as
   // items/manifest.json + items/<id>.svg) and uploaded via /api/town.
@@ -75,6 +79,8 @@ model Town {
   catalogJson   Json?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+
+  @@index([ownerId])
 }
 
 // A pairwise chat between two players inside one town. Participants are
@@ -163,13 +169,8 @@ model OAuthState {
 // + AI + manual edits all flow through writes here, and the renderer
 // re-reads on every change.
 model PlotRow {
-  userId    String   @id
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // The town this plot belongs to. Nullable for transition: existing rows
-  // get linked when their owner finishes onboarding. New PlotRows created
-  // by onboarding always have this set.
-  townId    String?  @unique
-  town      Town?    @relation(fields: [townId], references: [id], onDelete: SetNull)
+  townId    String   @id
+  town      Town     @relation(fields: [townId], references: [id], onDelete: Cascade)
   json      Json
   version   Int      @default(0)
   createdAt DateTime @default(now())
@@ -258,8 +259,8 @@ model AspectRow {
 // integrity at write time).
 model Npc {
   id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  townId      String
+  town        Town     @relation(fields: [townId], references: [id], onDelete: Cascade)
   buildingId  String
   // Slot within the building's variant — see `npcPositions` in @town/catalog
   // and @town/plot. Empty string is the implicit "first slot" that one-slot
@@ -282,9 +283,9 @@ model Npc {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([userId])
-  @@index([userId, buildingId])
-  @@index([userId, buildingId, slotId])
+  @@index([townId])
+  @@index([townId, buildingId])
+  @@index([townId, buildingId, slotId])
 }
 
 // User-uploaded sprite (PNG bytes for a CustomPlot exterior / interior /
@@ -330,6 +331,8 @@ model PlotSuggestion {
   id            String    @id @default(cuid())
   userId        String
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  townId        String
+  town          Town      @relation(fields: [townId], references: [id], onDelete: Cascade)
   kind          String
   status        String    @default("pending")
   payload       Json
@@ -340,6 +343,7 @@ model PlotSuggestion {
 
   @@index([userId, status])
   @@index([userId, createdAt])
+  @@index([townId, status])
 }
 
 // Per-house group chat message log. One row per posted message (human
@@ -441,4 +445,17 @@ model TownActivity {
 
   @@index([townSlug, createdAt])
   @@index([townSlug, kind, subjectKey, createdAt])
+}
+
+// Per-town energy meter ("aura"). v1 stores just `current` and `max`;
+// the follow-up ledger spec adds debit/top-up event rows on top.
+// Created in the same transaction as the Town it belongs to so the
+// invariant "every Town has an Aura row" holds at the DB level.
+model Aura {
+  townId    String   @id
+  town      Town     @relation(fields: [townId], references: [id], onDelete: Cascade)
+  current   Int      @default(1000)
+  max       Int      @default(1000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
