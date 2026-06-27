@@ -95,6 +95,38 @@ export default async function TownPage({
   const session = await getSessionFromCookie();
   const isOwner = !!session && session.user.id === town.ownerId;
 
+  // Draft towns are owner-only. Existing rows default to "active" via
+  // the schema, so live towns are unaffected; only towns that come into
+  // the world via `town create --draft` (and never hit `town deploy`)
+  // surface this branch to non-owners.
+  if (town.status === "draft" && !isOwner) {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily:
+            "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+          background: "#0e0e10",
+          color: "#e4e4e7",
+          padding: "32px",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ maxWidth: 480 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 600, marginBottom: 8 }}>
+            {town.name} is still in draft
+          </h1>
+          <p style={{ color: "#a1a1aa", lineHeight: 1.5 }}>
+            The owner hasn&rsquo;t deployed this town yet. Check back later.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   if (isOwner) {
     // The active-slug cookie is set in apps/web/src/proxy.ts (Next.js
     // disallows cookie writes during Server Component render).
