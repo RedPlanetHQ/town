@@ -144,6 +144,11 @@ export type UserInfo = {
   email_verified?: boolean;
   name?: string;
   preferred_username?: string;
+  // NOTE: CORE's /oauth/userinfo intentionally does NOT include
+  // workspace_id — it's a minimal OIDC endpoint. We fetch the
+  // workspace separately via fetchMe() below. The field is kept on
+  // this type only as a defensive optional for any callers that read
+  // older logs.
   workspace_id?: string;
 };
 
@@ -160,6 +165,32 @@ export async function fetchUserInfo(
     );
   }
   return (await res.json()) as UserInfo;
+}
+
+// /api/v1/me — the authenticated "current user" endpoint. Returns the
+// caller's workspace_id (an OAuth token is workspace-scoped at issue
+// time; this endpoint reads it off the auth context). Used by the
+// OAuth callback to learn the workspace since /oauth/userinfo omits it.
+export type CoreMe = {
+  id: string;
+  email?: string | null;
+  name?: string | null;
+  workspaceId?: string | null;
+};
+
+export async function fetchMe(
+  cfg: OAuthConfig,
+  accessToken: string,
+): Promise<CoreMe> {
+  const res = await fetch(`${cfg.base}/api/v1/me`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(
+      `CORE /api/v1/me ${res.status}: ${await safeText(res)}`,
+    );
+  }
+  return (await res.json()) as CoreMe;
 }
 
 export function buildAuthorizeUrl(

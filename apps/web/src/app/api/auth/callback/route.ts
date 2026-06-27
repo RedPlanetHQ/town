@@ -14,6 +14,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import {
   exchangeCodeForTokens,
+  fetchMe,
   fetchUserInfo,
   getOAuthConfig,
   getPublicBaseUrl,
@@ -53,9 +54,16 @@ export async function GET(req: NextRequest) {
     return redirectToError(req, errMessage(e));
   }
 
+  // /oauth/userinfo gives us {sub, email, name}; /api/v1/me gives us
+  // workspaceId (the userinfo endpoint intentionally omits workspace
+  // context). Fetch both in parallel.
   let info;
+  let me;
   try {
-    info = await fetchUserInfo(cfg, tokens.access_token);
+    [info, me] = await Promise.all([
+      fetchUserInfo(cfg, tokens.access_token),
+      fetchMe(cfg, tokens.access_token),
+    ]);
   } catch (e) {
     return redirectToError(req, errMessage(e));
   }
@@ -64,49 +72,39 @@ export async function GET(req: NextRequest) {
     return redirectToError(req, "CORE userinfo missing sub");
   }
 
-  const workspaceId = info.workspace_id ?? null;
-  const email = info.email ?? "";
-  const name = info.name ?? info.preferred_username ?? "Traveler";
+  const workspaceId = me.workspaceId ?? null;
+  if (!workspaceId) {
+    // No workspace on the CORE side — refuse to create a town-next
+    // account rather than silently inserting a (coreUserId, NULL)
+    // row that the composite unique can't deduplicate.
+    return redirectToError(
+      req,
+      "CORE login is missing a workspace — open app.getcore.me, pick a workspace, then try again.",
+    );
+  }
+  const email = info.email ?? me.email ?? "";
+  const name = info.name ?? info.preferred_username ?? me.name ?? "Traveler";
 
+  // One-shot grace: if a pre-migration row exists with workspaceId =
+  // null for this coreUserId, adopt it instead of inserting a new
+  // row. Fires until that row is filled, then becomes a no-op.
   let user;
-  if (workspaceId) {
-    // One-shot grace: adopt this login's workspace into the
-    // pre-migration row instead of creating a duplicate. Only
-    // fires until the row's workspaceId is filled.
-    const legacy = await prisma.user.findFirst({
-      where: { coreUserId: info.sub, workspaceId: null },
+  const legacy = await prisma.user.findFirst({
+    where: { coreUserId: info.sub, workspaceId: null },
+  });
+  if (legacy) {
+    user = await prisma.user.update({
+      where: { id: legacy.id },
+      data: { workspaceId, email, name },
     });
-    if (legacy) {
-      user = await prisma.user.update({
-        where: { id: legacy.id },
-        data: { workspaceId, email, name },
-      });
-    } else {
-      user = await prisma.user.upsert({
-        where: {
-          coreUserId_workspaceId: { coreUserId: info.sub, workspaceId },
-        },
-        create: { coreUserId: info.sub, workspaceId, email, name },
-        update: { email, name },
-      });
-    }
   } else {
-    // workspaceId not provided by CORE — Prisma's compound unique input
-    // doesn't accept null, so fall back to findFirst + create/update for
-    // the legacy "no workspace" code path.
-    const existing = await prisma.user.findFirst({
-      where: { coreUserId: info.sub, workspaceId: null },
+    user = await prisma.user.upsert({
+      where: {
+        coreUserId_workspaceId: { coreUserId: info.sub, workspaceId },
+      },
+      create: { coreUserId: info.sub, workspaceId, email, name },
+      update: { email, name },
     });
-    if (existing) {
-      user = await prisma.user.update({
-        where: { id: existing.id },
-        data: { email, name },
-      });
-    } else {
-      user = await prisma.user.create({
-        data: { coreUserId: info.sub, workspaceId: null, email, name },
-      });
-    }
   }
 
   const session = await createSession({ userId: user.id, tokens });

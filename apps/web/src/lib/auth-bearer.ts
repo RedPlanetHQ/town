@@ -80,50 +80,37 @@ export async function resolveUser(req: Request): Promise<ResolvedUser | null> {
   const me = await fetchCoreMe(pat);
   if (!me) return null;
 
-  // Upsert by (coreUserId, workspaceId) so repeat hits with the same PAT
-  // find the same town User row, and a name/email change on the CORE side
-  // flows through. Includes the one-shot grace path that adopts a pre-
-  // migration row (workspaceId=null) into the current workspace.
+  // workspaceId is required. CORE /api/v1/me returns it for both OAuth
+  // and PAT-issued tokens; if it's missing the caller's CORE account
+  // has no workspace and we refuse to create a town-next row.
   const workspaceId = me.workspaceId ?? null;
+  if (!workspaceId) {
+    console.error("[auth-bearer] PAT login missing workspaceId for", me.id);
+    return null;
+  }
   const email = me.email ?? "";
   const name = me.name ?? "";
 
+  // One-shot grace: adopt a pre-migration row with workspaceId=null
+  // into this workspace instead of inserting a duplicate. Goes
+  // dormant once every row has its workspaceId filled.
   let row;
-  if (workspaceId) {
-    const legacy = await prisma.user.findFirst({
-      where: { coreUserId: me.id, workspaceId: null },
+  const legacy = await prisma.user.findFirst({
+    where: { coreUserId: me.id, workspaceId: null },
+  });
+  if (legacy) {
+    row = await prisma.user.update({
+      where: { id: legacy.id },
+      data: { workspaceId, email, name },
     });
-    if (legacy) {
-      row = await prisma.user.update({
-        where: { id: legacy.id },
-        data: { workspaceId, email, name },
-      });
-    } else {
-      row = await prisma.user.upsert({
-        where: {
-          coreUserId_workspaceId: { coreUserId: me.id, workspaceId },
-        },
-        create: { coreUserId: me.id, workspaceId, email, name },
-        update: { email, name },
-      });
-    }
   } else {
-    // workspaceId not provided by CORE — Prisma's compound unique input
-    // doesn't accept null, so fall back to findFirst + create/update for
-    // the legacy "no workspace" code path.
-    const existing = await prisma.user.findFirst({
-      where: { coreUserId: me.id, workspaceId: null },
+    row = await prisma.user.upsert({
+      where: {
+        coreUserId_workspaceId: { coreUserId: me.id, workspaceId },
+      },
+      create: { coreUserId: me.id, workspaceId, email, name },
+      update: { email, name },
     });
-    if (existing) {
-      row = await prisma.user.update({
-        where: { id: existing.id },
-        data: { email, name },
-      });
-    } else {
-      row = await prisma.user.create({
-        data: { coreUserId: me.id, workspaceId: null, email, name },
-      });
-    }
   }
 
   return {
