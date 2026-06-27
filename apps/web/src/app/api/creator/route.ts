@@ -24,13 +24,13 @@
 // — see lib/creator/mutation-tools.ts — so a failing model still pays
 // only for the staging it actually performed.
 
-import { anthropic } from "@ai-sdk/anthropic";
 import { stepCountIs, streamText, type ModelMessage } from "ai";
 import { NextResponse } from "next/server";
 
 import { resolveUser } from "@/lib/auth-bearer";
 import { prisma } from "@/lib/db";
 import { resolveTownForOwner } from "@/lib/resolve-town";
+import { getCreatorModel } from "@/lib/creator/model";
 import {
   addBuildingTool,
   addNpcTool,
@@ -51,7 +51,6 @@ import { getTownBySlug } from "@/lib/town";
 export const dynamic = "force-dynamic";
 
 const TURN_COST = 2;
-const DEFAULT_MODEL = "claude-sonnet-4-5";
 const MAX_STEPS = 8;
 
 type CreatorRequestBody = {
@@ -248,7 +247,7 @@ export async function POST(req: Request) {
   });
 
   const result = streamText({
-    model: anthropic(process.env.ANTHROPIC_MODEL || DEFAULT_MODEL),
+    model: getCreatorModel(),
     system: buildSystemPrompt(town.name),
     messages: history,
     tools,
