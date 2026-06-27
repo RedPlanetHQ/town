@@ -2,11 +2,14 @@
 //
 //   GET  → { town: { id, slug, name } | null }
 //   POST { name, slug? } → { town: { id, slug, name } } on success;
-//        4xx with { error: 'slug-taken' | 'slug-invalid' | 'already-onboarded' }
+//        4xx with { error: 'slug-taken' | 'slug-invalid' }
 //
 // Accepts both the browser session cookie and a CORE PAT
 // (Authorization: Bearer <pat>), so `town init` can check ownership +
 // onboard a fresh town from the CLI without going through the web UI.
+//
+// Multi-town: a user can own N towns now. POST always creates a new
+// town; GET returns the OLDEST owned town for backward-compat.
 
 import { NextResponse } from "next/server";
 
@@ -18,11 +21,13 @@ export async function GET(req: Request) {
   if (!resolved) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-
+  // Backward-compat: return the oldest owned town as `town`, or null.
   const towns = await getTownsByOwner(resolved.user.id);
-  const town = towns.length > 0 ? towns[0]! : null;
+  const oldest = towns.length > 0 ? towns[towns.length - 1] : null;
   return NextResponse.json({
-    town: town ? { id: town.id, slug: town.slug, name: town.name } : null,
+    town: oldest
+      ? { id: oldest.id, slug: oldest.slug, name: oldest.name }
+      : null,
   });
 }
 
@@ -53,7 +58,7 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     const code = (e as { code?: string }).code;
-    if (code === "slug-taken" || code === "slug-invalid" || code === "already-onboarded") {
+    if (code === "slug-taken" || code === "slug-invalid") {
       return NextResponse.json({ error: code }, { status: 409 });
     }
     console.error("[towns/me POST] unexpected", e);
