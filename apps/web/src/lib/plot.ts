@@ -1,9 +1,9 @@
 // Server-side plot persistence helpers.
 //
-// One PlotRow per user. The row's `json` is the full Plot from @town/plot.
-// When the row doesn't exist yet for a user, we bootstrap by running the
-// seeded generator with the user's id as the seed — that gives a stable
-// "day-zero" town deterministically tied to the account.
+// One PlotRow per town. The row's `json` is the full Plot from @town/plot.
+// When the row doesn't exist yet for a town, we bootstrap by running the
+// seeded generator with the town's id as the seed — that gives a stable
+// "day-zero" town deterministically tied to the town id.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -31,45 +31,45 @@ function getManifest(): Manifest {
   return cachedManifest;
 }
 
-/** Synthesize a default plot for a brand-new user. The user's id is the
- *  generator seed, so two users always get visually distinct towns and
- *  the same user always sees the same starting layout. */
-function bootstrapPlot(userId: string): Plot {
+/** Synthesize a default plot for a brand-new town. The town's id is the
+ *  generator seed, so two towns always get visually distinct layouts and
+ *  the same town always sees the same starting layout. */
+function bootstrapPlot(townId: string): Plot {
   return generatePlot({
-    seed: userId,
+    seed: townId,
     catalog,
     manifest: getManifest(),
     activeCount: 3,            // day-zero trio: home, library, store
-    id: `plot-${userId}`,
+    id: `plot-${townId}`,
   });
 }
 
 /** Lazy NPC bootstrap. Run from any code path that wants to read NPCs
- *  for a user — covers users whose PlotRow was created before the Npc
- *  table existed. No-op if the user already has at least one Npc row. */
-export async function ensureNpcsForUser(userId: string): Promise<void> {
-  const count = await prisma.npc.count({ where: { userId } });
+ *  for a town — covers towns whose PlotRow was created before the Npc
+ *  table existed. No-op if the town already has at least one Npc row. */
+export async function ensureNpcsForTown(townId: string): Promise<void> {
+  const count = await prisma.npc.count({ where: { townId } });
   if (count > 0) return;
-  const row = await prisma.plotRow.findUnique({ where: { userId } });
+  const row = await prisma.plotRow.findUnique({ where: { townId } });
   if (!row) return;
   const plot = row.json as unknown as Plot;
-  await seedNpcs(userId, plot);
+  await seedNpcs(townId, plot);
 }
 
-export async function getPlotForUser(userId: string): Promise<{ plot: Plot; version: number }> {
-  const existing = await prisma.plotRow.findUnique({ where: { userId } });
+export async function getPlotForTown(townId: string): Promise<{ plot: Plot; version: number }> {
+  const existing = await prisma.plotRow.findUnique({ where: { townId } });
   if (existing) {
     return { plot: existing.json as unknown as Plot, version: existing.version };
   }
-  const plot = bootstrapPlot(userId);
+  const plot = bootstrapPlot(townId);
   const row = await prisma.plotRow.create({
-    data: { userId, json: plot as unknown as object, version: 1 },
+    data: { townId, json: plot as unknown as object, version: 1 },
   });
-  await seedNpcs(userId, plot);
+  await seedNpcs(townId, plot);
   return { plot, version: row.version };
 }
 
-/** Seed one user-owned NPC per slot in the freshly-generated plot. Walks
+/** Seed one town-owned NPC per slot in the freshly-generated plot. Walks
  *  `plot.npcs[]` (which already has one entry per variant slot — see
  *  `@town/plot-gen`) and writes a default Npc row for each. Buildings
  *  whose plotKey has no template still skip cleanly.
@@ -88,9 +88,9 @@ export async function getPlotForUser(userId: string): Promise<{ plot: Plot; vers
  *
  *  Idempotent — uses `createMany({ skipDuplicates: true })` keyed on the
  *  Npc PK, so re-running is safe. */
-export async function seedNpcs(userId: string, plot: Plot): Promise<void> {
+export async function seedNpcs(townId: string, plot: Plot): Promise<void> {
   const data: Array<{
-    userId: string;
+    townId: string;
     buildingId: string;
     slotId: string;
     name: string;
@@ -110,7 +110,7 @@ export async function seedNpcs(userId: string, plot: Plot): Promise<void> {
         ? defaultNpcName(building.plotKey)
         : titleCase(slot.label) || titleCase(slotId);
     data.push({
-      userId,
+      townId,
       buildingId: building.id,
       slotId,
       name,
@@ -158,21 +158,21 @@ function defaultNpcName(plotKey: string): string {
   return base.charAt(0).toUpperCase() + base.slice(1);
 }
 
-/** Replace a user's plot wholesale. Bumps version so polling clients see
+/** Replace a town's plot wholesale. Bumps version so polling clients see
  *  the change on their next request. */
-export async function savePlotForUser(userId: string, plot: Plot): Promise<{ version: number }> {
+export async function savePlotForTown(townId: string, plot: Plot): Promise<{ version: number }> {
   const row = await prisma.plotRow.upsert({
-    where: { userId },
-    create: { userId, json: plot as unknown as object, version: 1 },
+    where: { townId },
+    create: { townId, json: plot as unknown as object, version: 1 },
     update: { json: plot as unknown as object, version: { increment: 1 } },
   });
   return { version: row.version };
 }
 
 /** Cheap polling probe — returns just the current version. */
-export async function getPlotVersionForUser(userId: string): Promise<number | null> {
+export async function getPlotVersionForTown(townId: string): Promise<number | null> {
   const row = await prisma.plotRow.findUnique({
-    where: { userId },
+    where: { townId },
     select: { version: true },
   });
   return row?.version ?? null;

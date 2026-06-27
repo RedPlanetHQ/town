@@ -11,7 +11,7 @@
 import { NextResponse } from "next/server";
 
 import { resolveUser } from "@/lib/auth-bearer";
-import { getTownByOwner, pickTown } from "@/lib/town";
+import { getTownsByOwner, pickTown } from "@/lib/town";
 
 export async function GET(req: Request) {
   const resolved = await resolveUser(req);
@@ -19,7 +19,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const town = await getTownByOwner(resolved.user.id);
+  const towns = await getTownsByOwner(resolved.user.id);
+  const town = towns.length > 0 ? towns[0]! : null;
   return NextResponse.json({
     town: town ? { id: town.id, slug: town.slug, name: town.name } : null,
   });

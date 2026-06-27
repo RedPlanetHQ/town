@@ -60,11 +60,11 @@ export async function resolveGroupChatAccess(
   const view = await resolveViewer(slug);
   if ("error" in view) return { error: view.error };
 
-  // The plot lives on the town owner's row — visitors read the same blob.
+  // The plot lives on the town's row — visitors read the same blob.
   // Pull the owner's display name in the same round-trip so we don't
   // make a second query per request.
   const [row, owner] = await Promise.all([
-    prisma.plotRow.findFirst({ where: { userId: view.town.ownerId } }),
+    prisma.plotRow.findUnique({ where: { townId: view.town.id } }),
     prisma.user.findUnique({
       where: { id: view.town.ownerId },
       select: { name: true },

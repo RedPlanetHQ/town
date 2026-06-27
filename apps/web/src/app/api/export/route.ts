@@ -16,8 +16,8 @@ import { NextResponse } from "next/server";
 import { resolveUser } from "@/lib/auth-bearer";
 import { prisma } from "@/lib/db";
 import { loadManifest } from "@/lib/manifest";
-import { getPlotForUser } from "@/lib/plot";
-import { getTownByOwner } from "@/lib/town";
+import { getPlotForTown } from "@/lib/plot";
+import { getTownsByOwner } from "@/lib/town";
 import { normalizeSlug } from "@/lib/town-code";
 import { renderTownPostcard } from "@/lib/town-export";
 
@@ -30,34 +30,38 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const rawTownName = url.searchParams.get("town_name")?.trim() ?? "";
 
-  // Resolve the town. Default to the caller's own town when no
-  // town_name is given. When a town_name is provided, only allow the
-  // caller's own town through (PAT export skips the share-code path
-  // intentionally).
-  const ownTown = await getTownByOwner(resolved.user.id);
-  if (!ownTown) {
+  // Resolve the town. Default to the caller's most-recently-updated
+  // town when no town_name is given. When a town_name is provided,
+  // match against any of the caller's owned towns (PAT export skips
+  // the share-code path intentionally).
+  const owned = await getTownsByOwner(resolved.user.id);
+  if (owned.length === 0) {
     return NextResponse.json({ error: "no-town" }, { status: 404 });
   }
+  let ownTown = owned[0]!;
   if (rawTownName) {
     const candidateSlug = normalizeSlug(rawTownName);
-    const matches =
-      ownTown.slug === candidateSlug ||
-      ownTown.name.toLowerCase() === rawTownName.toLowerCase();
-    if (!matches) {
+    const match = owned.find(
+      (t) =>
+        t.slug === candidateSlug ||
+        t.name.toLowerCase() === rawTownName.toLowerCase(),
+    );
+    if (!match) {
       return NextResponse.json(
         { error: "forbidden", detail: "PAT only exports the caller's own town" },
         { status: 403 },
       );
     }
+    ownTown = match;
   }
 
-  const { plot } = await getPlotForUser(ownTown.ownerId);
+  const { plot } = await getPlotForTown(ownTown.id);
   const [owner, npcCount] = await Promise.all([
     prisma.user.findUnique({
       where: { id: ownTown.ownerId },
       select: { name: true },
     }),
-    prisma.npc.count({ where: { userId: ownTown.ownerId } }),
+    prisma.npc.count({ where: { townId: ownTown.id } }),
   ]);
 
   let png: Buffer;

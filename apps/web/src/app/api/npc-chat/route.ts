@@ -48,7 +48,7 @@ import { getChatModel } from "@/lib/chat-model";
 import { ingestNpcTurn, npcChatSessionId } from "@/lib/core-memory";
 import { getOwnerCoreToken } from "@/lib/core-token";
 import { prisma } from "@/lib/db";
-import { ensureNpcsForUser } from "@/lib/plot";
+import { ensureNpcsForTown } from "@/lib/plot";
 import { getNpcTemplate, type NpcPermissions } from "@/lib/npc-templates";
 import {
   buildNpcTools,
@@ -143,14 +143,14 @@ interface NpcInfo {
 
 async function resolveNpc(
   npcId: string,
-  userId: string,
+  townId: string,
 ): Promise<NpcInfo | null> {
-  // Only user-owned NPCs run through this route. System NPCs (Founder)
+  // Only town-owned NPCs run through this route. System NPCs (Founder)
   // have their own endpoints with bespoke prompts + tools — callers
   // must address them there. `npcId` is always the Npc row's cuid; the
   // interior renderer resolves (buildingId, slotId) → cuid via the
   // /api/npcs cache before calling here.
-  const row = await prisma.npc.findFirst({ where: { id: npcId, userId } });
+  const row = await prisma.npc.findFirst({ where: { id: npcId, townId } });
   if (!row) return null;
   // Backfill path: rows seeded before the permissions column existed have
   // permissions=null. Look up the template by building plotKey via the
@@ -162,7 +162,7 @@ async function resolveNpc(
     permissions = row.permissions as NpcPermissions;
   } else {
     const plotRow = await prisma.plotRow.findUnique({
-      where: { userId },
+      where: { townId },
       select: { json: true },
     });
     const plot = plotRow?.json as {
@@ -281,6 +281,7 @@ export async function POST(req: Request) {
   //   • townSlug absent → legacy owner-only path. resolveUser must
   //     succeed (cookie session or PAT) — there's no other identity.
   let npcOwnerId: string;
+  let npcTownId: string;
   let viewer: ViewerContext;
   // The town-scoped tools (grant_tag / give_item) need the visitor's
   // stable participantKey to attribute awards. Captured here when the
@@ -299,6 +300,7 @@ export async function POST(req: Request) {
       });
     }
     npcOwnerId = view.town.ownerId;
+    npcTownId = view.town.id;
     viewer = { isOwner: view.isOwner, name: view.displayName };
     visitorSubjectKey = view.participantKey;
     activityCharacter = view.character;
@@ -311,16 +313,31 @@ export async function POST(req: Request) {
       });
     }
     npcOwnerId = resolved.user.id;
+    // Legacy owner-only path: pick the caller's most-recently-updated
+    // town. Multi-town owners hitting this endpoint without a townSlug
+    // get a defined-but-arbitrary target.
+    const ownTown = await prisma.town.findFirst({
+      where: { ownerId: resolved.user.id },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true },
+    });
+    if (!ownTown) {
+      return new Response(JSON.stringify({ error: "no-town" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    npcTownId = ownTown.id;
     viewer = { isOwner: true, name: resolved.user.name || "the owner" };
     visitorSubjectKey = `user:${resolved.user.id}`;
   }
 
-  let npc = await resolveNpc(body.npcId, npcOwnerId);
-  // Auto-heal: if the owner's PlotRow predates the Npc table, seed the
+  let npc = await resolveNpc(body.npcId, npcTownId);
+  // Auto-heal: if the town's PlotRow predates the Npc table, seed the
   // role-specific NPCs from their plot's buildings, then retry.
   if (!npc) {
-    await ensureNpcsForUser(npcOwnerId);
-    npc = await resolveNpc(body.npcId, npcOwnerId);
+    await ensureNpcsForTown(npcTownId);
+    npc = await resolveNpc(body.npcId, npcTownId);
   }
   if (!npc) {
     return new Response(JSON.stringify({ error: "npc-not-found" }), {

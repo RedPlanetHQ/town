@@ -18,7 +18,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { loadManifest } from "@/lib/manifest";
-import { getPlotForUser } from "@/lib/plot";
+import { getPlotForTown } from "@/lib/plot";
 import { getTownBySlug } from "@/lib/town";
 import { renderTownPostcard } from "@/lib/town-export";
 
@@ -31,13 +31,13 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
     return NextResponse.json({ error: "not-found" }, { status: 404 });
   }
 
-  const { plot } = await getPlotForUser(town.ownerId);
+  const { plot } = await getPlotForTown(town.id);
   const [owner, npcCount] = await Promise.all([
     prisma.user.findUnique({
       where: { id: town.ownerId },
       select: { name: true },
     }),
-    prisma.npc.count({ where: { userId: town.ownerId } }),
+    prisma.npc.count({ where: { townId: town.id } }),
   ]);
 
   let png: Buffer;

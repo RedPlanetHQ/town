@@ -16,9 +16,14 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { resolveUser } from "@/lib/auth-bearer";
+import { prisma } from "@/lib/db";
 import { loadManifest } from "@/lib/manifest";
-import { getPlotForUser, savePlotForUser, getPlotVersionForUser } from "@/lib/plot";
-import { getTownBySlug } from "@/lib/town";
+import {
+  getPlotForTown,
+  savePlotForTown,
+  getPlotVersionForTown,
+} from "@/lib/plot";
+import { getTownBySlug, getTownsByOwner } from "@/lib/town";
 import { parseVisitorCookie, visitorCookieName } from "@/lib/town-code";
 import type { Plot } from "@town/plot";
 import { validatePlot } from "@town/plot";
@@ -46,10 +51,10 @@ export async function GET(req: Request) {
       }
     }
     if (isProbe) {
-      const version = await getPlotVersionForUser(town.ownerId);
+      const version = await getPlotVersionForTown(town.id);
       return NextResponse.json({ version });
     }
-    const { plot, version } = await getPlotForUser(town.ownerId);
+    const { plot, version } = await getPlotForTown(town.id);
     return NextResponse.json({ plot, version });
   }
 
@@ -57,11 +62,16 @@ export async function GET(req: Request) {
   if (!resolved) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const owned = await getTownsByOwner(resolved.user.id);
+  if (owned.length === 0) {
+    return NextResponse.json({ error: "no-town" }, { status: 404 });
+  }
+  const own = owned[0]!;
   if (isProbe) {
-    const version = await getPlotVersionForUser(resolved.user.id);
+    const version = await getPlotVersionForTown(own.id);
     return NextResponse.json({ version });
   }
-  const { plot, version } = await getPlotForUser(resolved.user.id);
+  const { plot, version } = await getPlotForTown(own.id);
   return NextResponse.json({ plot, version });
 }
 
@@ -87,6 +97,14 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const { version } = await savePlotForUser(resolved.user.id, plot);
+  const own = await prisma.town.findFirst({
+    where: { ownerId: resolved.user.id },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+  if (!own) {
+    return NextResponse.json({ error: "no-town" }, { status: 404 });
+  }
+  const { version } = await savePlotForTown(own.id, plot);
   return NextResponse.json({ version });
 }

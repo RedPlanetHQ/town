@@ -16,7 +16,7 @@ import type { CustomPlot, Plot } from "@town/plot";
 
 import { prisma } from "./db";
 import { loadManifest } from "./manifest";
-import { getPlotForUser, savePlotForUser } from "./plot";
+import { getPlotForTown, savePlotForTown } from "./plot";
 
 export interface TownShapeBuilding {
   id: string;
@@ -65,9 +65,9 @@ export interface TownNpcDTO {
   permissions?: unknown;
 }
 
-export async function loadTownNpcs(userId: string): Promise<TownNpcDTO[]> {
+export async function loadTownNpcs(townId: string): Promise<TownNpcDTO[]> {
   const rows = await prisma.npc.findMany({
-    where: { userId },
+    where: { townId },
     orderBy: [{ buildingId: "asc" }, { slotId: "asc" }],
   });
   return rows.map((r) => ({
@@ -91,10 +91,10 @@ export interface ApplyTownShapeResult {
   version: number;
 }
 
-/** Take the user's current Plot and apply a new town shape. Three modes:
+/** Take the town's current Plot and apply a new town shape. Three modes:
  *
  *   1. No existing plot → generate a fresh Plot via `generatePlot` from
- *      the supplied buildings + customPlots, seeded by userId.
+ *      the supplied buildings + customPlots, seeded by townId.
  *   2. Existing plot → diff buildings, run incremental ops (remove /
  *      change variant / add), then merge customPlots from the input.
  *
@@ -102,39 +102,39 @@ export interface ApplyTownShapeResult {
  *  IncrementalError (no free cell, unknown plotKey, etc.) as a typed
  *  result so the route handler can return a structured 400. */
 export async function applyTownShape(
-  userId: string,
+  townId: string,
   input: ApplyTownShapeInput,
 ): Promise<ApplyTownShapeResult> {
   const manifest = loadManifest();
   const ctx: IncrementalCtx = { catalog, manifest };
   const customPlots = input.customPlots ?? [];
 
-  const existing = await prisma.plotRow.findUnique({ where: { userId } });
+  const existing = await prisma.plotRow.findUnique({ where: { townId } });
   if (!existing) {
     // First-deploy path: build the plot from scratch. We seed the layout
     // with the FIRST-N buildings driven by PLOT_PRIORITY (the same way
     // `bootstrapPlot` does), then run incremental adds for any building
     // that wasn't included in the seeded layout.
     const seedPlot = generatePlot({
-      seed: userId,
+      seed: townId,
       catalog,
       manifest,
       activeCount: 0,
-      id: `plot-${userId}`,
+      id: `plot-${townId}`,
       customPlots,
     });
-    return applyDiff(userId, seedPlot, input.buildings, ctx);
+    return applyDiff(townId, seedPlot, input.buildings, ctx);
   }
 
   let next = existing.json as unknown as Plot;
   if (customPlots.length > 0 || next.customPlots) {
     next = { ...next, customPlots };
   }
-  return applyDiff(userId, next, input.buildings, ctx);
+  return applyDiff(townId, next, input.buildings, ctx);
 }
 
 async function applyDiff(
-  userId: string,
+  townId: string,
   startingPlot: Plot,
   incoming: TownShapeBuilding[],
   ctx: IncrementalCtx,
@@ -156,20 +156,20 @@ async function applyDiff(
     if (e instanceof IncrementalError) throw e;
     throw e;
   }
-  const { version } = await savePlotForUser(userId, nextPlot);
+  const { version } = await savePlotForTown(townId, nextPlot);
   return { plot: nextPlot, version };
 }
 
 /** Convenience for the GET handler — returns the projected shape. Will
- *  bootstrap a fresh plot if the user has none, matching legacy /api/plot
+ *  bootstrap a fresh plot if the town has none, matching legacy /api/plot
  *  semantics so `town clone` works even for fresh accounts. */
-export async function getTownShape(userId: string): Promise<{
+export async function getTownShape(townId: string): Promise<{
   shape: TownShape;
   version: number;
   npcs: TownNpcDTO[];
 }> {
-  const { plot, version } = await getPlotForUser(userId);
+  const { plot, version } = await getPlotForTown(townId);
   const shape = projectTownShape(plot);
-  const npcs = await loadTownNpcs(userId);
+  const npcs = await loadTownNpcs(townId);
   return { shape, version, npcs };
 }

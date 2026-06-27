@@ -1,10 +1,10 @@
-// Apply ONE approved effect for a user. Runs when a PlotSuggestion is
+// Apply ONE approved effect for a town. Runs when a PlotSuggestion is
 // approved via /api/suggestions/[id]/approve.
 //
 // add-building: walk the catalog's PLOT_PRIORITY in order, find the first
 // plotKey that matches the requested base (e.g. "studio" → "studio" or
 // "studio-2" if "studio" is already taken) that isn't already in the
-// user's plot, then regenerate the plot via the seed-based generator with
+// town's plot, then regenerate the plot via the seed-based generator with
 // activeCount = current count + 1. We don't surgically inject — letting
 // the generator place the new building keeps clearings + roads + decor
 // consistent with the rest of the town. seedNpcs() then materialises the
@@ -51,12 +51,12 @@ export interface ApplyResult {
  *  resulted in a write (some effects no-op if the world already moved on,
  *  e.g. the building already exists). */
 export async function applyEffect(
-  userId: string,
+  townId: string,
   effect: Effect,
 ): Promise<ApplyResult> {
   if (effect.kind === "add-building") {
-    const row = await prisma.plotRow.findUnique({ where: { userId } });
-    if (!row) return { applied: false, reason: "user has no plot row" };
+    const row = await prisma.plotRow.findUnique({ where: { townId } });
+    if (!row) return { applied: false, reason: "town has no plot row" };
     const plot = row.json as unknown as Plot;
     const resolvedKey = pickInstanceKey(effect.plotKey, plot);
     if (!resolvedKey) {
@@ -71,13 +71,13 @@ export async function applyEffect(
       id: plot.id,
     });
     await prisma.plotRow.update({
-      where: { userId },
+      where: { townId },
       data: {
         json: regenerated as unknown as object,
         version: { increment: 1 },
       },
     });
-    await seedNpcs(userId, regenerated);
+    await seedNpcs(townId, regenerated);
     return { applied: true };
   }
 
@@ -95,10 +95,10 @@ export async function applyEffect(
   }
 
   if (effect.kind === "add-npc") {
-    // Confirm the building still exists in the user's plot before we
+    // Confirm the building still exists in the town's plot before we
     // attach an orphan NPC.
-    const row = await prisma.plotRow.findUnique({ where: { userId } });
-    if (!row) return { applied: false, reason: "user has no plot row" };
+    const row = await prisma.plotRow.findUnique({ where: { townId } });
+    if (!row) return { applied: false, reason: "town has no plot row" };
     const plot = row.json as unknown as Plot;
     const ok = plot.buildings.some((b) => b.id === effect.buildingId);
     if (!ok) {
@@ -106,7 +106,7 @@ export async function applyEffect(
     }
     await prisma.npc.create({
       data: {
-        userId,
+        townId,
         buildingId: effect.buildingId,
         name: effect.name,
         description: effect.description,
@@ -115,7 +115,7 @@ export async function applyEffect(
     });
     // Bump plot version so renderers re-pull NPC roster.
     await prisma.plotRow.update({
-      where: { userId },
+      where: { townId },
       data: { version: { increment: 1 } },
     });
     return { applied: true };
@@ -126,7 +126,7 @@ export async function applyEffect(
 
 /** Find the first instance-suffix variant of `plotKey` (e.g. "studio",
  *  "studio-2", "studio-3", …) that exists in PLOT_PRIORITY and isn't
- *  already in the user's plot. Returns null if the catalog has no room
+ *  already in the town's plot. Returns null if the catalog has no room
  *  left for another instance. */
 function pickInstanceKey(plotKey: string, plot: Plot): string | null {
   const targetBase = baseKey(plotKey);

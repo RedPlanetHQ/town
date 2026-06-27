@@ -16,7 +16,7 @@ import { z } from "zod";
 
 import { resolveUser } from "@/lib/auth-bearer";
 import { prisma } from "@/lib/db";
-import { ensureNpcsForUser } from "@/lib/plot";
+import { ensureNpcsForTown } from "@/lib/plot";
 import { getTownBySlug } from "@/lib/town";
 import { parseVisitorCookie, visitorCookieName } from "@/lib/town-code";
 
@@ -57,11 +57,11 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: "forbidden" }, { status: 403 });
       }
     }
-    // Backfill on read so users whose plot pre-dates the Npc table
+    // Backfill on read so towns whose plot pre-dates the Npc table
     // still get a roster on first visit.
-    await ensureNpcsForUser(town.ownerId);
+    await ensureNpcsForTown(town.id);
     const rows = await prisma.npc.findMany({
-      where: { userId: town.ownerId },
+      where: { townId: town.id },
       orderBy: { buildingId: "asc" },
     });
     return NextResponse.json({
@@ -80,9 +80,20 @@ export async function GET(req: Request) {
   if (!resolved) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  await ensureNpcsForUser(resolved.user.id);
+  // No slug → pick the caller's most-recently-updated town. Multi-town
+  // owners get a defined-but-arbitrary roster; the CLI deploy path always
+  // includes a slug.
+  const ownTown = await prisma.town.findFirst({
+    where: { ownerId: resolved.user.id },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+  if (!ownTown) {
+    return NextResponse.json({ npcs: [] });
+  }
+  await ensureNpcsForTown(ownTown.id);
   const rows = await prisma.npc.findMany({
-    where: { userId: resolved.user.id },
+    where: { townId: ownTown.id },
     orderBy: [{ buildingId: "asc" }, { slotId: "asc" }],
   });
   return NextResponse.json({
@@ -115,14 +126,25 @@ export async function POST(req: Request) {
   // Replace wholesale inside a transaction so a partial write is impossible.
   // CLI `town deploy` will use this — the user's local .mdx files are the
   // source of truth and the server mirrors them on push.
-  const userId = resolved.user.id;
+  const ownTown = await prisma.town.findFirst({
+    where: { ownerId: resolved.user.id },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+  if (!ownTown) {
+    return NextResponse.json(
+      { error: "no-town", detail: "caller has no town to write npcs into" },
+      { status: 409 },
+    );
+  }
+  const townId = ownTown.id;
   const count = await prisma.$transaction(async (tx) => {
-    await tx.npc.deleteMany({ where: { userId } });
+    await tx.npc.deleteMany({ where: { townId } });
     if (parsed.npcs.length === 0) return 0;
     const created = await tx.npc.createMany({
       data: parsed.npcs.map((n) => ({
         ...(n.id ? { id: n.id } : {}),
-        userId,
+        townId,
         buildingId: n.buildingId,
         slotId: n.slotId,
         name: n.name,

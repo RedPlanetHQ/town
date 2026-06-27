@@ -41,7 +41,11 @@ async function processJob(job: Job<EventJobData>): Promise<void> {
   if (!row) return;
 
   // envelope.userId is CORE's user id; town stores it on User.coreUserId.
-  const user = await prisma.user.findUnique({
+  // Users are now keyed on (coreUserId, workspaceId). The town-events
+  // queue doesn't carry workspaceId yet, so pick the first matching User
+  // — pre-migration rows have workspaceId=null and the OAuth callback's
+  // grace path adopts them on next login.
+  const user = await prisma.user.findFirst({
     where: { coreUserId: row.userId },
     select: { id: true },
   });
@@ -53,6 +57,23 @@ async function processJob(job: Job<EventJobData>): Promise<void> {
     return;
   }
   const townUserId = user.id;
+
+  // Pick a town for this user. v1 supports N towns per user but the
+  // worker hasn't been extended to route per-town yet; target the user's
+  // most-recently-updated town.
+  const town = await prisma.town.findFirst({
+    where: { ownerId: townUserId },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+  if (!town) {
+    console.warn(
+      `[worker] user ${townUserId} has no town; skipping event ${eventId}`,
+    );
+    await markProcessed(eventId);
+    return;
+  }
+  const townId = town.id;
 
   // Rehydrate the loose DB row into the discriminated TownEvent shape.
   // parseEnvelope already validated the payload at write time, so trust
@@ -67,17 +88,17 @@ async function processJob(job: Job<EventJobData>): Promise<void> {
   } as TownEvent;
 
   const plotRow = await prisma.plotRow.findUnique({
-    where: { userId: townUserId },
+    where: { townId },
   });
   if (!plotRow) {
     console.warn(
-      `[worker] user ${townUserId} has no plot row; skipping event ${eventId}`,
+      `[worker] town ${townId} has no plot row; skipping event ${eventId}`,
     );
     await markProcessed(eventId);
     return;
   }
   const npcs: NpcRowLite[] = await prisma.npc.findMany({
-    where: { userId: townUserId },
+    where: { townId },
     select: {
       id: true,
       buildingId: true,
@@ -92,7 +113,7 @@ async function processJob(job: Job<EventJobData>): Promise<void> {
     npcs,
   });
 
-  const written = await recordSuggestions(townUserId, eventId, effects);
+  const written = await recordSuggestions(townUserId, townId, eventId, effects);
   console.log(
     `[worker] ${eventId} ${envelope.type} → ${written} suggestion(s) queued`,
   );

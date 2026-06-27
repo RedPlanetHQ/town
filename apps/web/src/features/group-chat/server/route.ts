@@ -14,7 +14,7 @@ import { z } from "zod";
 import { publish } from "@/lib/centrifugo";
 import { prisma } from "@/lib/db";
 import { normalizePermissions } from "@/lib/npc-templates";
-import { ensureNpcsForUser } from "@/lib/plot";
+import { ensureNpcsForTown } from "@/lib/plot";
 import { recordTownActivity } from "@/lib/town-activity";
 
 import type {
@@ -171,7 +171,7 @@ async function maybeTriggerNpcReply(access: GroupChatAccess): Promise<void> {
   // predates the Npc table (same heal path /api/npc-chat uses).
   let npcs = await loadNpcsForBuilding(access);
   if (npcs.length === 0) {
-    await ensureNpcsForUser(access.viewer.town.ownerId);
+    await ensureNpcsForTown(access.viewer.town.id);
     npcs = await loadNpcsForBuilding(access);
   }
   if (npcs.length === 0) return;
@@ -311,7 +311,7 @@ function recentHumanRequestedStop(
 async function loadNpcsForBuilding(access: GroupChatAccess) {
   return prisma.npc.findMany({
     where: {
-      userId: access.viewer.town.ownerId,
+      townId: access.viewer.town.id,
       buildingId: access.building.id,
     },
   });

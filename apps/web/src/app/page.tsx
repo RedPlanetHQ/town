@@ -8,7 +8,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { getSessionFromCookie } from "@/lib/session";
-import { getTownByOwner } from "@/lib/town";
+import { getTownsByOwner } from "@/lib/town";
 import { Landing } from "@/ui/Landing";
 import { Onboarding } from "@/ui/Onboarding";
 
@@ -43,8 +43,8 @@ export const metadata: Metadata = {
 export default async function Home() {
   const session = await getSessionFromCookie();
   if (session) {
-    const town = await getTownByOwner(session.user.id);
-    if (town) redirect(`/${town.slug}`);
+    const towns = await getTownsByOwner(session.user.id);
+    if (towns.length > 0) redirect(`/${towns[0]!.slug}`);
     return <Onboarding userName={session.user.name} />;
   }
   return <Landing />;
