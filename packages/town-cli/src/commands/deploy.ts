@@ -173,6 +173,11 @@ async function uploadLocalSprites(
 export interface RunDeployOpts {
   dir?: string;
   reflow?: boolean;
+  /** Explicit slug — wins over the local town.json's `id` and the
+   *  folder name. Used when the user is operating on a town from
+   *  outside its folder, or to disambiguate across multiple owned
+   *  towns. */
+  slug?: string;
   /** Internal — appended to /api/town as `?from=creator` so the server
    *  brackets the deploy in a renovating/active status flip. The chat
    *  surface's approve flow sets this; ordinary `town deploy` leaves
@@ -210,6 +215,30 @@ export async function runDeploy(opts: RunDeployOpts): Promise<void> {
   } catch (err) {
     p.cancel(err instanceof Error ? err.message : "unknown error reading files");
     process.exit(1);
+  }
+
+  // Resolve the slug. Order: explicit flag → town.json#id reverse-lookup
+  // via /api/towns/mine → folder name. Resolving here keeps the URL
+  // composition step further down agnostic of how we got the slug.
+  let slug = opts.slug;
+  if (!slug && town.id) {
+    try {
+      const mine = await fetch(`${townUrl}/api/towns/mine`, {
+        headers: { authorization: `Bearer ${pat}` },
+      });
+      if (mine.ok) {
+        const body = (await mine.json()) as {
+          towns?: Array<{ id: string; slug: string }>;
+        };
+        const found = body.towns?.find((t) => t.id === town.id);
+        if (found) slug = found.slug;
+      }
+    } catch {
+      // fall through to the folder-name fallback
+    }
+  }
+  if (!slug) {
+    slug = dir.split("/").pop() ?? undefined;
   }
 
   if (!Array.isArray(town.buildings) || town.buildings.length === 0) {
@@ -269,9 +298,11 @@ export async function runDeploy(opts: RunDeployOpts): Promise<void> {
   spinner.start(
     opts.reflow ? "Uploading town (re-laying out)…" : "Uploading town…",
   );
-  // Compose any active query params: ?reflow=1 (rewind layout) and/or
-  // ?from=creator (status flip for the chat-creator approve flow).
+  // Compose any active query params: ?slug=<slug> (target town), ?reflow=1
+  // (rewind layout), ?from=creator (status flip for the chat-creator
+  // approve flow).
   const params = new URLSearchParams();
+  if (slug) params.set("slug", slug);
   if (opts.reflow) params.set("reflow", "1");
   if (opts.from) params.set("from", opts.from);
   const qs = params.toString();
@@ -323,10 +354,30 @@ export function registerDeploy(program: Command): void {
       "Folder containing town.json + customPlots/ + npcs/. Defaults to the current directory.",
     )
     .option(
+      "--slug <slug>",
+      "Target town slug. Defaults to the id stash in town.json (resolved via /api/towns/mine), then the folder name.",
+    )
+    .option(
       "--reflow",
       "Wipe the server-side plot before applying so the layout re-runs from scratch. Use when the existing town has buildings spread too wide to read as a settlement.",
     )
-    .action(async (opts: { dir?: string; reflow?: boolean }) => {
-      await runDeploy(opts);
-    });
+    .option(
+      "--from <from>",
+      "Internal — set to `creator` to bracket the deploy in a renovating/active status flip (used by the chat creator's approve flow).",
+    )
+    .action(
+      async (opts: {
+        dir?: string;
+        slug?: string;
+        reflow?: boolean;
+        from?: string;
+      }) => {
+        await runDeploy({
+          dir: opts.dir,
+          slug: opts.slug,
+          reflow: opts.reflow,
+          from: opts.from === "creator" ? "creator" : undefined,
+        });
+      },
+    );
 }
