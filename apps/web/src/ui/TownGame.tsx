@@ -44,6 +44,7 @@ import { Flyover } from "./Flyover";
 import { HudButton } from "./HudButton";
 import { PopulationPopover } from "./PopulationPopover";
 import { TownRadio } from "./TownRadio";
+import { TownSwitcher } from "./TownSwitcher";
 import { TransitionLoading } from "./TransitionLoading";
 
 // The mount point: a canvas owned by React, populated by kaplay in useEffect,
@@ -253,6 +254,9 @@ export function TownGame(props: TownGameProps = {}) {
           />
         ) : hud ? (
           <Hud hud={hud} />
+        ) : null}
+        {!isVisitor && ownerSlug ? (
+          <TownSwitcher activeSlug={ownerSlug} />
         ) : null}
         <CommunityLinks />
       </div>
