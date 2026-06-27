@@ -47,8 +47,12 @@ const PRESS =
 
 function styleFor(variant: Variant, active: boolean): string {
   if (variant === "primary") return `${PRESS} text-ink`;
+  // Active state keeps the dark bt-bg fill so it matches the dark
+  // dropdown that opens below it. A slightly lighter dark
+  // (bt-border tone) reads as "depressed" without going white over
+  // the bright landing backdrop.
   return active
-    ? `${PRESS} text-paper bg-white/10`
+    ? `${PRESS} text-paper bg-[#1a1d22]`
     : `${PRESS} text-paper`;
 }
 

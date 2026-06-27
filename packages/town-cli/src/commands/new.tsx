@@ -117,6 +117,12 @@ export interface LaunchChatOpts {
 
 export async function launchChat(opts: LaunchChatOpts): Promise<void> {
   return new Promise((resolveChat) => {
+    // Clear the terminal + enter the alternate screen buffer before Ink
+    // mounts. Without this, prior stdout (clack spinners, scaffolder
+    // logs) leaves Ink unable to position its cursor — every keystroke
+    // re-prints the header instead of patching in place. The escape
+    // sequences are restored on exit via Ink's stdout restore.
+    process.stdout.write("\x1b[?1049h\x1b[H");
     const app = render(
       <ChatApp
         townUrl={opts.townUrl}

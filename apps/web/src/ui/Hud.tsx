@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 
 import { getPlayerCharacter } from "../game/character";
 import { logout } from "../game/auth";
@@ -245,7 +244,13 @@ function SwitchTownItem({
             towns.map((t) => {
               const isActive = t.slug === activeSlug;
               return (
-                <Link
+                // Plain <a> (not next/link) so switching town does a
+                // full document load. The town view holds module-level
+                // caches (NPCs, realtime remotes, plot client state) +
+                // a kaplay GL context that aren't worth tearing down
+                // and rebuilding in-place when the user is asking for
+                // a different town entirely.
+                <a
                   key={t.id}
                   href={`/${t.slug}`}
                   onClick={onPick}
@@ -262,7 +267,7 @@ function SwitchTownItem({
                       <span aria-hidden className="text-paper">✓</span>
                     ) : null}
                   </span>
-                </Link>
+                </a>
               );
             })
           )}
