@@ -51,21 +51,23 @@ export async function recordSuggestions(
   return effects.length;
 }
 
-/** List the user's pending suggestions, newest first. */
+/** List a town's pending suggestions, newest first. Town-scoped — the
+ *  HUD only shows suggestions for the currently-rendered town so a user
+ *  flipping between owned towns sees a fresh list each time. */
 export async function listPendingSuggestions(
-  userId: string,
+  townId: string,
 ): Promise<SuggestionRow[]> {
   const rows = await prisma.plotSuggestion.findMany({
-    where: { userId, status: "pending" },
+    where: { townId, status: "pending" },
     orderBy: { createdAt: "desc" },
   });
   return rows.map(toSuggestionRow);
 }
 
-/** Count of pending suggestions — what the HUD badge reads. */
-export async function countPendingSuggestions(userId: string): Promise<number> {
+/** Count of pending suggestions for a town — what the HUD badge reads. */
+export async function countPendingSuggestions(townId: string): Promise<number> {
   return prisma.plotSuggestion.count({
-    where: { userId, status: "pending" },
+    where: { townId, status: "pending" },
   });
 }
 

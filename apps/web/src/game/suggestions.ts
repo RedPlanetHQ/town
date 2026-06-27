@@ -1,8 +1,12 @@
 // Suggestions poller — keeps the pending PlotSuggestion list fresh.
 //
 // Drives the top-right HUD badge ("3 new") and the right sidebar contents.
-// Polls /api/suggestions while the user is signed in. Drops everything to
-// zero when signed out (the API would 401 anyway).
+// Polls /api/suggestions?slug=<active town> while the user is signed in.
+// Drops everything to zero when signed out (the API would 401 anyway).
+//
+// Town-scoped: the caller (TownGame) passes the slug of the town the
+// owner is currently rendering so suggestions for other owned towns
+// don't appear in this town's sidebar.
 
 import type { SuggestionItem } from "../ui/store";
 import { ui } from "../ui/store";
@@ -11,6 +15,7 @@ import { getSession, onSessionChange } from "./auth";
 const POLL_MS = 15_000;
 
 let timer: number | null = null;
+let activeSlug: string | null = null;
 
 type SuggestionsResponse = {
   suggestions: SuggestionItem[];
@@ -18,7 +23,7 @@ type SuggestionsResponse = {
 };
 
 export async function refreshSuggestions(): Promise<void> {
-  if (!getSession()) {
+  if (!getSession() || !activeSlug) {
     ui.setSuggestions({
       count: 0,
       list: [],
@@ -27,7 +32,10 @@ export async function refreshSuggestions(): Promise<void> {
     return;
   }
   try {
-    const res = await fetch("/api/suggestions", { cache: "no-store" });
+    const res = await fetch(
+      `/api/suggestions?slug=${encodeURIComponent(activeSlug)}`,
+      { cache: "no-store" },
+    );
     if (!res.ok) {
       ui.setSuggestions({
         count: 0,
@@ -92,15 +100,17 @@ function stop() {
   });
 }
 
-export function startSuggestionsPoller() {
+export function startSuggestionsPoller(slug: string | null) {
   if (typeof window === "undefined") return () => {};
-  if (getSession()) start();
+  activeSlug = slug;
+  if (getSession() && activeSlug) start();
   const unsub = onSessionChange((s) => {
-    if (s) start();
+    if (s && activeSlug) start();
     else stop();
   });
   return () => {
     unsub();
     stop();
+    activeSlug = null;
   };
 }

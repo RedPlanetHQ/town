@@ -175,7 +175,7 @@ export function TownGame(props: TownGameProps = {}) {
     void refreshSession();
     const stopWorkspace = startWorkspaceSync();
     const stopNpcs = startNpcsSync();
-    const stopSuggestions = startSuggestionsPoller();
+    const stopSuggestions = startSuggestionsPoller(ownerSlug ?? null);
 
     let rt: RealtimeHandle | null = null;
     let stopPending: (() => void) | null = null;
