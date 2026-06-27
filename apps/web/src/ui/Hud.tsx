@@ -7,6 +7,7 @@ import { getPlayerCharacter } from "../game/character";
 import { logout } from "../game/auth";
 import { CharacterAvatar } from "./CharacterAvatar";
 import { HudButton } from "./HudButton";
+import { NewTownInstructions } from "./NewTownInstructions";
 import { ui } from "./store";
 import type { HudKind } from "./store";
 
@@ -281,9 +282,6 @@ function SwitchTownItem({
 }
 
 function NewTownModal({ onClose }: { onClose: () => void }) {
-  const cmd = "npx town new";
-  const [copied, setCopied] = useState(false);
-
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -291,13 +289,6 @@ function NewTownModal({ onClose }: { onClose: () => void }) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
-
-  function copy() {
-    void navigator.clipboard.writeText(cmd).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }
 
   return (
     <div
@@ -313,7 +304,7 @@ function NewTownModal({ onClose }: { onClose: () => void }) {
               New town
             </div>
             <h2 className="mt-1 text-2xl font-black leading-tight text-paper">
-              Create a new town
+              Create another town
             </h2>
           </div>
           <button
@@ -329,23 +320,7 @@ function NewTownModal({ onClose }: { onClose: () => void }) {
           Towns are created from the CLI so you can keep authoring next
           to your editor.
         </p>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-bold uppercase tracking-wide text-paper/60">
-            Run this in your shell
-          </span>
-          <div className="flex items-center justify-between gap-2 border-2 border-paper/20 bg-black/30 px-3 py-2">
-            <code className="truncate font-mono text-sm font-bold text-paper">
-              {cmd}
-            </code>
-            <button
-              type="button"
-              onClick={copy}
-              className="text-xs font-bold uppercase tracking-wide text-paper/60 hover:text-paper"
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
-        </div>
+        <NewTownInstructions variant="modal" />
       </div>
     </div>
   );

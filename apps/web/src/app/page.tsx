@@ -1,8 +1,10 @@
 // Root landing.
 //
-//  • Signed in + has Town(s) → redirect to /{active-slug or most-recent}
-//  • Signed in + no Town      → render onboarding (pick name → create Town)
-//  • Not signed in            → guest playground (current TownGame as before)
+//  • Signed in + has Town  → redirect to /{active.slug}
+//  • Signed in + no Town   → render the CLI-instructions card
+//                            (towns are created from the CLI; no
+//                            in-browser onboarding form)
+//  • Not signed in         → guest playground (<Landing>)
 
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
@@ -11,7 +13,7 @@ import { readActiveSlug } from "@/lib/active-slug";
 import { getSessionFromCookie } from "@/lib/session";
 import { getActiveTownForUser } from "@/lib/town";
 import { Landing } from "@/ui/Landing";
-import { Onboarding } from "@/ui/Onboarding";
+import { NewTownWelcome } from "@/ui/NewTownWelcome";
 
 // Force-dynamic so the OAuth callback's redirect-to-/ always lands on
 // a freshly rendered page. cookies() already opts this route out of
@@ -47,5 +49,5 @@ export default async function Home() {
   const cookieSlug = await readActiveSlug();
   const active = await getActiveTownForUser(session.user.id, cookieSlug);
   if (active) redirect(`/${active.slug}`);
-  return <Onboarding userName={session.user.name} />;
+  return <NewTownWelcome userName={session.user.name} />;
 }
