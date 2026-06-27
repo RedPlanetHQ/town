@@ -30,10 +30,17 @@ import { Box, Text, useApp, useInput, useStdout } from "ink";
 import Spinner from "ink-spinner";
 
 import { DiffModal, type PendingChange } from "./diff-modal.js";
-import { PendingRibbon } from "./pending-ribbon.js";
+import { Header } from "./header.js";
 import { StatusBar } from "./status-bar.js";
 import { ToolCallView, type ToolCallState } from "./tool-call.js";
 import { streamCreator, type StreamChunk } from "./stream-events.js";
+
+// Pulled from packages/town-cli/package.json. Hard-coded for now so the
+// header doesn't pull in a JSON import (and so we don't need package.json
+// in `files` of the published tarball). Bump in lockstep with the
+// version field there.
+const CLI_VERSION = "0.2.0";
+const LABEL_COLOR = "rgb(232,143,106)"; // warm orange used by You:/Creator: labels
 
 // -----------------------------------------------------------------------------
 // Public surface
@@ -521,14 +528,10 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
   );
 
   const cols = stdout?.columns ?? 80;
+  const divider = "─".repeat(Math.max(1, cols));
   return (
     <Box flexDirection="column" width={cols}>
-      <Box paddingX={1}>
-        <Text dimColor>
-          {"● "}town v0.2.0  ·  ctrl+c to exit
-        </Text>
-      </Box>
-      <Box height={1} />
+      <Header version={CLI_VERSION} />
       <Box flexDirection="column" marginBottom={1}>
         {state.rows.map((row, i) => (
           <ChatRowView
@@ -554,27 +557,25 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
           onClear={onClear}
           onCancel={() => dispatch({ type: "close-diff" })}
         />
-      ) : (
-        <PendingRibbon count={state.pending.length} />
-      )}
+      ) : null}
+      {state.statusMessage ? (
+        <Box marginBottom={1}>
+          <Text dimColor>{state.statusMessage}</Text>
+        </Box>
+      ) : null}
+      <Text dimColor>{divider}</Text>
       <Box>
         <Text color="cyan">{"> "}</Text>
         <Text>{state.inputBuffer}</Text>
         <Text color="cyan">{state.mode === "input" ? "▎" : ""}</Text>
       </Box>
-      {state.statusMessage ? (
-        <Box>
-          <Text dimColor>{state.statusMessage}</Text>
-        </Box>
-      ) : null}
-      <Box marginTop={1}>
-        <StatusBar
-          cwd={props.cwd}
-          townSlug={props.townSlug}
-          auraCurrent={state.aura.current}
-          auraMax={state.aura.max}
-        />
-      </Box>
+      <Text dimColor>{divider}</Text>
+      <StatusBar
+        pendingCount={state.pending.length}
+        auraCurrent={state.aura.current}
+        auraMax={state.aura.max}
+        cols={cols}
+      />
     </Box>
   );
 }
@@ -587,23 +588,26 @@ function ChatRowView({
   expanded: boolean;
 }): React.ReactElement {
   if (row.type === "user") {
-    // User bubble: dark-gray background + ❯ prefix, with a blank line
-    // below so the next assistant turn has room to breathe.
+    // Sol-style label header — bold orange "You:" with a blank gap and
+    // the user's text on its own row in default white. No bubble bg.
     return (
-      <Box marginBottom={1}>
-        <Text backgroundColor="#3a3a3a" color="white">
-          {" ❯ "}
-          {row.text}
-          {" "}
+      <Box flexDirection="column" marginBottom={1}>
+        <Text bold color={LABEL_COLOR}>
+          You:
         </Text>
+        <Text> </Text>
+        <Text>{row.text}</Text>
       </Box>
     );
   }
   if (row.type === "assistant") {
-    // Assistant: no prefix, default colour. One blank line below to
-    // separate from the next user turn or tool-call group.
+    // Same label pattern, "Creator:" for assistant turns.
     return (
-      <Box marginBottom={1}>
+      <Box flexDirection="column" marginBottom={1}>
+        <Text bold color={LABEL_COLOR}>
+          Creator:
+        </Text>
+        <Text> </Text>
         <Text>{row.text}</Text>
       </Box>
     );
