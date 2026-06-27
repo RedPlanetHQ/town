@@ -14,21 +14,22 @@
 import { NextResponse } from "next/server";
 
 import { resolveUser } from "@/lib/auth-bearer";
-import { getTownsByOwner, pickTown } from "@/lib/town";
+import { prisma } from "@/lib/db";
+import { pickTown } from "@/lib/town";
 
 export async function GET(req: Request) {
   const resolved = await resolveUser(req);
   if (!resolved) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  // Backward-compat: return the oldest owned town as `town`, or null.
-  const towns = await getTownsByOwner(resolved.user.id);
-  const oldest = towns.length > 0 ? towns[towns.length - 1] : null;
-  return NextResponse.json({
-    town: oldest
-      ? { id: oldest.id, slug: oldest.slug, name: oldest.name }
-      : null,
+  // Backward-compat: return the OLDEST owned town (by creation), or null.
+  // Multi-town clients should hit /api/towns/mine for the full list.
+  const oldest = await prisma.town.findFirst({
+    where: { ownerId: resolved.user.id },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, slug: true, name: true },
   });
+  return NextResponse.json({ town: oldest });
 }
 
 export async function POST(req: Request) {
