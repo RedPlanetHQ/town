@@ -251,6 +251,20 @@ export async function POST(req: Request) {
     });
   }
 
+  // ?from=creator — the apply step for the AI town creator. We bracket
+  // the deploy in a status flip so the live renderer can show a brief
+  // "the owner is renovating" overlay on a per-town basis; the flip
+  // back to "active" happens inside the same NPC transaction below so
+  // a crashed apply leaves status="renovating" (visitor-visible cue
+  // that the owner needs to retry) instead of a half-applied "active".
+  const fromCreator = url.searchParams.get("from") === "creator";
+  if (fromCreator) {
+    await prisma.town.update({
+      where: { id: townId },
+      data: { status: "renovating" },
+    });
+  }
+
   let applied;
   try {
     applied = await applyTownShape(townId, input);
@@ -304,6 +318,14 @@ export async function POST(req: Request) {
         await tx.town.update({
           where: { id: townId },
           data: { catalogJson: parsed.catalog as unknown as object },
+        });
+      }
+      // Flip back to active inside the same tx — a crashed apply leaves
+      // status="renovating" so the next visitor sees the stale state.
+      if (fromCreator) {
+        await tx.town.update({
+          where: { id: townId },
+          data: { status: "active" },
         });
       }
       return count;
