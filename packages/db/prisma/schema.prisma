@@ -35,14 +35,15 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  sessions     Session[]
-  townEvents   TownEventRow[]
-  integrations IntegrationRow[]
-  aspects      AspectRow[]
-  labels       LabelRow[]
-  towns        Town[]
-  suggestions  PlotSuggestion[]
-  sprites      Sprite[]
+  sessions             Session[]
+  townEvents           TownEventRow[]
+  integrations         IntegrationRow[]
+  aspects              AspectRow[]
+  labels               LabelRow[]
+  towns                Town[]
+  suggestions          PlotSuggestion[]
+  sprites              Sprite[]
+  creatorConversations CreatorConversation[]
 
   @@unique([coreUserId, workspaceId])
   @@index([email])
@@ -65,11 +66,19 @@ model Town {
   // they don't have to re-enter on subsequent visits.
   shareCode     String         @unique
 
-  aura          Aura?
-  plot          PlotRow?
-  npcs          Npc[]
-  conversations Conversation[]
-  suggestions   PlotSuggestion[]
+  // Town lifecycle. "active" is the published, visitor-accessible state
+  // (default). "draft" hides the town from non-owners until the owner
+  // first deploys. "renovating" is set transiently during /api/town?from=creator
+  // applies so the renderer can show a brief overlay; flipped back to
+  // "active" inside the same transaction that applies the shape.
+  status        String         @default("active")
+
+  aura                 Aura?
+  plot                 PlotRow?
+  npcs                 Npc[]
+  conversations        Conversation[]
+  suggestions          PlotSuggestion[]
+  creatorConversations CreatorConversation[]
   // Per-town catalog of visitor tags + SVG item templates. Authored under
   // the town deployment directory (tags inline in town.json, items as
   // items/manifest.json + items/<id>.svg) and uploaded via /api/town.
@@ -458,4 +467,64 @@ model Aura {
   max       Int      @default(1000)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Per-town, per-user chat thread for the AI town creator (the `town
+// chat` flow). One conversation is "active" at a time per (town, user);
+// `town chat --clear` flips it to "cleared" and opens a fresh row so the
+// player's history is preserved for audit but invisible at run time.
+//
+// Disjoint from the existing visitor `Conversation` model on purpose —
+// this is owner-only creator chat, not pairwise player chat.
+model CreatorConversation {
+  id        String   @id @default(cuid())
+  townId    String
+  town      Town     @relation(fields: [townId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // "active" | "cleared". Only one row per (townId, userId) is "active"
+  // at any time; the route handler upserts on first turn.
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages CreatorMessage[]
+  changes  CreatorChange[]
+
+  @@index([townId, status])
+  @@index([userId, status])
+}
+
+// One stored turn in a CreatorConversation. `content` is the full AI SDK
+// message payload (parts array — text + tool-call + tool-result) so
+// the route handler can rehydrate the conversation verbatim on the
+// next streamText() call.
+model CreatorMessage {
+  id             String              @id @default(cuid())
+  conversationId String
+  conversation   CreatorConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String                                                                  // "user" | "assistant" | "system"
+  content        Json
+  createdAt      DateTime            @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// Pending mutation queued by a chat tool call. The creator never mutates
+// the live town directly — every add/update/delete becomes a CreatorChange
+// row, the player reviews them in the diff view, and the apply step
+// drains the queue into a single `/api/town?from=creator` POST.
+//
+// `kind` mirrors the tool name; `payload` is the tool input verbatim so
+// the apply step can rebuild the TownShape without consulting the tool.
+model CreatorChange {
+  id             String              @id @default(cuid())
+  conversationId String
+  conversation   CreatorConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  kind           String                                                                  // see header for the enum
+  payload        Json
+  summary        String
+  createdAt      DateTime            @default(now())
+
+  @@index([conversationId, createdAt])
 }
