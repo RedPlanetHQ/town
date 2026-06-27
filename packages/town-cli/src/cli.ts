@@ -1,15 +1,26 @@
 // town — companion CLI for editing your plot offline and pushing it back.
 //
 // Commands:
-//   town login   Authenticate with CORE (saves a PAT to ~/.town/config.json).
-//   town init    Create a new town OR pull your existing one into a local
-//                folder named after the slug.
-//   town deploy  Push local town.json + customPlots + npcs back to the server.
+//   town            Inside a folder with town.json → launch the chat creator.
+//                   Outside → prints help.
+//   town new        Create a new town and drop into the chat creator.
+//   town clone      Pull an existing town's state into a local folder.
+//   town catalog    Print the global plotKey catalog.
+//   town deploy     Push the local town folder to the server.
+//   town login      Authenticate with CORE (saves a PAT to ~/.town/config.json).
+//   town init       Hint alias — points users at `town new` / `town clone`.
 
 import { Command } from "commander";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { registerLogin } from "./commands/login.js";
 import { registerInit } from "./commands/init.js";
 import { registerDeploy } from "./commands/deploy.js";
+import { registerNew, launchChat } from "./commands/new.js";
+
+import { getConfig } from "./config.js";
+import { readTownJson } from "./shared/town-io.js";
 
 const program = new Command();
 
@@ -21,6 +32,62 @@ program
 registerLogin(program);
 registerInit(program);
 registerDeploy(program);
+registerNew(program);
+
+// Bare `town`: if we're inside a town folder, drop into the chat
+// surface. Otherwise fall through to Commander's default help.
+program.action(async () => {
+  const cwd = resolve(process.cwd());
+  const townJsonPath = `${cwd}/town.json`;
+  if (!existsSync(townJsonPath)) {
+    program.help();
+    return;
+  }
+  const cfg = getConfig();
+  if (!cfg.auth?.pat || !cfg.auth.townUrl) {
+    console.error("Not logged in — run `town login` first.");
+    process.exit(1);
+  }
+  const { townUrl, pat } = cfg.auth;
+  let townJson;
+  try {
+    townJson = await readTownJson(cwd);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
+  // Resolve the slug: prefer the server-issued id stash via
+  // /api/towns/mine when it's present, otherwise fall back to the
+  // folder name. The fallback lets pre-id-stash folders still work.
+  let slug: string | undefined;
+  if (townJson.id) {
+    try {
+      const res = await fetch(`${townUrl}/api/towns/mine`, {
+        headers: { authorization: `Bearer ${pat}` },
+      });
+      if (res.ok) {
+        const body = (await res.json()) as {
+          towns?: Array<{ id: string; slug: string }>;
+        };
+        const me = body.towns?.find((t) => t.id === townJson.id);
+        if (me) slug = me.slug;
+      }
+    } catch {
+      // ignored — folder name fallback below.
+    }
+  }
+  if (!slug) {
+    slug = cwd.split("/").pop() ?? "town";
+  }
+
+  await launchChat({
+    townUrl,
+    pat,
+    townSlug: slug,
+    townId: townJson.id ?? "",
+    cwd,
+  });
+});
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);
