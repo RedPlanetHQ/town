@@ -29,6 +29,7 @@ import { NextResponse } from "next/server";
 
 import { resolveUser } from "@/lib/auth-bearer";
 import { prisma } from "@/lib/db";
+import { resolveTownForOwner } from "@/lib/resolve-town";
 import {
   addBuildingTool,
   addNpcTool,
@@ -57,6 +58,54 @@ type CreatorRequestBody = {
   message?: string;
   action?: "clear-conversation" | "clear-changes";
 };
+
+// GET /api/creator?slug=<slug>
+//
+// Hydrates the CLI chat surface on launch. Resolves the caller's town
+// from `?slug=…`, finds (or lazily creates) the active conversation,
+// and returns its message history + pending change queue + the town's
+// live aura. Returning the conversation id lets the CLI display it /
+// debug it; the POST handler still owns conversation rotation.
+export async function GET(req: Request) {
+  const resolved = await resolveUser(req);
+  if (!resolved) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const r = await resolveTownForOwner(req, resolved.user.id);
+  if (!r.ok) return NextResponse.json(r.body, { status: r.status });
+
+  let convo = await prisma.creatorConversation.findFirst({
+    where: { townId: r.townId, userId: resolved.user.id, status: "active" },
+  });
+  if (!convo) {
+    convo = await prisma.creatorConversation.create({
+      data: { townId: r.townId, userId: resolved.user.id },
+    });
+  }
+
+  const [messages, changes, aura] = await Promise.all([
+    prisma.creatorMessage.findMany({
+      where: { conversationId: convo.id },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, role: true, content: true, createdAt: true },
+    }),
+    prisma.creatorChange.findMany({
+      where: { conversationId: convo.id },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, kind: true, payload: true, summary: true },
+    }),
+    prisma.aura.findUnique({ where: { townId: r.townId } }),
+  ]);
+
+  return NextResponse.json({
+    conversationId: convo.id,
+    messages,
+    pendingChanges: changes,
+    aura: aura
+      ? { current: aura.current, max: aura.max }
+      : { current: 1000, max: 1000 },
+  });
+}
 
 export async function POST(req: Request) {
   const resolved = await resolveUser(req);
