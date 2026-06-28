@@ -29,30 +29,25 @@ export function StatusBar({
   const ratio = auraMax > 0 ? auraCurrent / auraMax : 1;
   const auraColor: "cyan" | "yellow" | "red" =
     ratio < 0.1 ? "red" : ratio < 0.3 ? "yellow" : "cyan";
+
+  // Compose a single status string so the line never wraps mid-token
+  // when Ink's flex layout under-reports the terminal width. Left and
+  // right segments share one Text element, padded with spaces so the
+  // aura sits flush to the right edge. CORE-style lowercase phrasing:
+  // `{N} pending` — number bold orange, "pending" dim. Empty when zero.
+  const leftCount = pendingCount > 0 ? String(pendingCount) : "";
+  const leftSuffix = pendingCount > 0 ? " pending" : "";
+  const right = `⚡ ${auraCurrent}/${auraMax}`;
+  const used = leftCount.length + leftSuffix.length + right.length;
+  const fill = Math.max(1, cols - used);
   return (
-    <Box width={cols} justifyContent="space-between">
-      <Box>
-        {pendingCount > 0 ? (
-          <>
-            <Text bold color={LABEL_COLOR}>
-              Changes:
-            </Text>
-            <Text>
-              {" "}
-              {pendingCount} staged
-            </Text>
-          </>
-        ) : (
-          <Text> </Text>
-        )}
-      </Box>
-      <Box>
-        <Text color="cyan">⚡</Text>
-        <Text> </Text>
-        <Text color={auraColor}>
-          {auraCurrent}/{auraMax}
-        </Text>
-      </Box>
+    <Box>
+      <Text bold color={LABEL_COLOR}>
+        {leftCount}
+      </Text>
+      <Text dimColor>{leftSuffix}</Text>
+      <Text>{" ".repeat(fill)}</Text>
+      <Text color={auraColor}>{right}</Text>
     </Box>
   );
 }
