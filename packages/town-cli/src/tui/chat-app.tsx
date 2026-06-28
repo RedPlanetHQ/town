@@ -26,7 +26,7 @@
 //   Ctrl+C       → exit
 
 import React, { useCallback, useEffect, useReducer, useState } from "react";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import Spinner from "ink-spinner";
 
 import { DiffModal, type PendingChange } from "./diff-modal.js";
@@ -543,28 +543,43 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
     { isActive: true },
   );
 
-  const cols = stdout?.columns ?? 80;
-  const divider = "─".repeat(Math.max(1, cols));
+  const cols = Math.max(20, stdout?.columns ?? 80);
+  const divider = "─".repeat(cols);
+
+  // Ink's frame-replacement gets confused after upstream stdout writes
+  // (clack spinners, scaffolder logs). Anything in <Static> renders
+  // once into the scroll and never re-prints, which sidesteps the
+  // re-render duplication. Header + finalized chat rows go here; only
+  // the live input / divider / status bar are dynamic below.
+  const staticItems: Array<{ key: string; node: React.ReactElement }> = [
+    {
+      key: "header",
+      node: <Header version={CLI_VERSION} />,
+    },
+    ...state.rows.map((row, i) => ({
+      key: `row-${i}`,
+      node: (
+        <ChatRowView
+          row={row}
+          expanded={row.type === "tool" ? state.toolsExpanded : false}
+        />
+      ),
+    })),
+  ];
+
   return (
-    <Box flexDirection="column" width={cols}>
-      <Header version={CLI_VERSION} />
-      <Box flexDirection="column" marginBottom={1}>
-        {state.rows.map((row, i) => (
-          <ChatRowView
-            key={i}
-            row={row}
-            expanded={row.type === "tool" ? state.toolsExpanded : false}
-          />
-        ))}
-        {showThinking(state) ? (
-          <Box>
-            <Text color="cyan">
-              <Spinner type="dots" />
-            </Text>
-            <Text dimColor> Thinking…</Text>
-          </Box>
-        ) : null}
-      </Box>
+    <Box flexDirection="column">
+      <Static items={staticItems}>
+        {(item) => <React.Fragment key={item.key}>{item.node}</React.Fragment>}
+      </Static>
+      {showThinking(state) ? (
+        <Box marginBottom={1}>
+          <Text color="cyan">
+            <Spinner type="dots" />
+          </Text>
+          <Text dimColor> Thinking…</Text>
+        </Box>
+      ) : null}
       {state.mode === "diff" ? (
         <DiffModal
           changes={state.pending}
@@ -576,7 +591,7 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
       ) : null}
       {state.statusMessage ? (
         <Box marginBottom={1}>
-          <Text dimColor>{state.statusMessage}</Text>
+          <Text dimColor>{`› ${state.statusMessage}`}</Text>
         </Box>
       ) : null}
       <Text dimColor>{divider}</Text>
@@ -604,14 +619,14 @@ function ChatRowView({
   expanded: boolean;
 }): React.ReactElement {
   if (row.type === "user") {
-    // Sol-style label header — bold orange "You:" with a blank gap and
-    // the user's text on its own row in default white. No bubble bg.
+    // Sol-style label header — bold orange "You:" with the user's text
+    // on its own row in default white. No bubble bg, no extra spacer
+    // line (the marginBottom on the wrapper already breathes for us).
     return (
       <Box flexDirection="column" marginBottom={1}>
         <Text bold color={LABEL_COLOR}>
           You:
         </Text>
-        <Text> </Text>
         <Text>{row.text}</Text>
       </Box>
     );
@@ -623,7 +638,6 @@ function ChatRowView({
         <Text bold color={LABEL_COLOR}>
           Creator:
         </Text>
-        <Text> </Text>
         <Text>{row.text}</Text>
       </Box>
     );
@@ -632,22 +646,21 @@ function ChatRowView({
     return <ToolCallView call={row.call} expanded={expanded} />;
   }
   if (row.type === "error") {
-    // Stream / SDK errors get a hard red bubble so they stand out
-    // against the rest of the dim chrome.
+    // Subdued single-line error — red ✗ glyph + default-colored message.
+    // No bg fill, no own marginBottom; the next row sets its own gap so
+    // errors sit tight against whatever follows.
     return (
-      <Box marginBottom={1}>
-        <Text backgroundColor="red" color="white">
-          {" ✗ "}
-          {row.text}
-          {" "}
-        </Text>
+      <Box>
+        <Text color="red">{"✗ "}</Text>
+        <Text>{row.text}</Text>
       </Box>
     );
   }
   // System rows — slash-command output, /help, conversation cleared, etc.
+  // Dim white reads as informational; yellow read as a warning.
   return (
     <Box marginBottom={1}>
-      <Text color="yellow">{row.text}</Text>
+      <Text dimColor>{row.text}</Text>
     </Box>
   );
 }
