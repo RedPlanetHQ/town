@@ -187,26 +187,13 @@ export async function POST(req: Request) {
     );
   }
 
-  // Replay prior history from the DB. CreatorMessage.content is the AI
-  // SDK message body persisted on the previous turn's onFinish — for
-  // user turns it's a plain string, for assistant turns it's the full
-  // shape including tool call / tool result parts.
+  // Replay prior history from the DB.
   const stored = await prisma.creatorMessage.findMany({
     where: { conversationId: convo.id },
     orderBy: { createdAt: "asc" },
   });
 
-  // Build ModelMessage[]. We accept either plain-string content
-  // (user turns) or the rich parts shape we persist for assistants —
-  // the SDK normalizes both at the wire layer, so we cast through the
-  // shared `ModelMessage` union to keep the TS overload happy.
-  const history: ModelMessage[] = stored.map(
-    (m) =>
-      ({
-        role: m.role as ModelMessage["role"],
-        content: m.content as unknown,
-      }) as ModelMessage,
-  );
+  const history = storedToModelMessages(stored);
   const userText = body.message.trim();
   history.push({ role: "user", content: userText });
 
@@ -278,6 +265,94 @@ export async function POST(req: Request) {
   return result.toUIMessageStreamResponse({
     headers: { "x-conversation-id": convo.id },
   });
+}
+
+// Convert persisted CreatorMessage rows to the AI SDK's ModelMessage
+// shape. We persist assistant turns as `{ text, toolCalls, toolResults }`
+// on `onFinish` because that's the easiest thing to round-trip into the
+// CLI for display. The SDK, however, wants assistant content to be
+// either a plain string OR an array of `{type:"text"|"tool-call"}`
+// parts, with tool results in a follow-up `role:"tool"` message. This
+// helper does that translation so streamText() can validate the
+// replayed history.
+type StoredAssistantContent = {
+  text?: string;
+  toolCalls?: Array<{
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+  }>;
+  toolResults?: Array<{
+    toolCallId: string;
+    toolName?: string;
+    output: unknown;
+  }>;
+};
+
+function storedToModelMessages(
+  stored: Array<{ role: string; content: unknown }>,
+): ModelMessage[] {
+  const out: ModelMessage[] = [];
+  for (const m of stored) {
+    if (m.role === "user") {
+      const text =
+        typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+      out.push({ role: "user", content: text });
+      continue;
+    }
+    if (m.role === "assistant") {
+      // Newer rows persist the rich `{ text, toolCalls, toolResults }`
+      // object; older rows might still be a plain string. Normalize both
+      // into the SDK's parts-array shape.
+      if (typeof m.content === "string") {
+        out.push({ role: "assistant", content: m.content });
+        continue;
+      }
+      const c = (m.content ?? {}) as StoredAssistantContent;
+      const toolCalls = c.toolCalls ?? [];
+      const toolResults = c.toolResults ?? [];
+      if (toolCalls.length === 0) {
+        out.push({ role: "assistant", content: c.text ?? "" });
+        continue;
+      }
+      const parts: Array<
+        | { type: "text"; text: string }
+        | {
+            type: "tool-call";
+            toolCallId: string;
+            toolName: string;
+            input: unknown;
+          }
+      > = [];
+      if (c.text) parts.push({ type: "text", text: c.text });
+      for (const tc of toolCalls) {
+        parts.push({
+          type: "tool-call",
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          input: tc.input,
+        });
+      }
+      out.push({
+        role: "assistant",
+        content: parts as unknown,
+      } as ModelMessage);
+      if (toolResults.length > 0) {
+        out.push({
+          role: "tool",
+          content: toolResults.map((tr) => ({
+            type: "tool-result" as const,
+            toolCallId: tr.toolCallId,
+            toolName: tr.toolName ?? "",
+            output: { type: "json" as const, value: tr.output },
+          })) as unknown,
+        } as ModelMessage);
+      }
+    }
+    // Drop unknown roles (system, etc.) — the SDK adds its own system
+    // via the `system:` option on streamText.
+  }
+  return out;
 }
 
 function buildSystemPrompt(townName: string): string {
