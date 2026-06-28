@@ -86,6 +86,11 @@ export type ChatRow =
 
 interface State {
   rows: ChatRow[];
+  /** Number of rows committed to the Static scroll (read-only after this
+   *  point). Anything past this index is "live" — re-rendered as stream
+   *  chunks arrive. begin-stream bumps this to include the user turn;
+   *  end-stream snapshots the rest of the rows array. */
+  finalizedRowCount: number;
   pending: PendingChange[];
   aura: { current: number; max: number };
   /** Active conversation id, updated when `/clear` opens a fresh one.
@@ -125,20 +130,37 @@ function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "set-input":
       return { ...state, inputBuffer: action.value };
-    case "append-row":
-      return { ...state, rows: [...state.rows, action.row] };
-    case "begin-stream":
+    case "append-row": {
+      const nextRows = [...state.rows, action.row];
+      // Appended outside a stream → finalize immediately so Static
+      // renders it.
       return {
         ...state,
-        rows: [...state.rows, { type: "user", text: action.userText }],
+        rows: nextRows,
+        finalizedRowCount: nextRows.length,
+      };
+    }
+    case "begin-stream": {
+      const nextRows = [...state.rows, { type: "user" as const, text: action.userText }];
+      return {
+        ...state,
+        rows: nextRows,
+        // User turn is final the instant we add it. The assistant +
+        // tool rows that follow live in the "live" tail until
+        // end-stream snapshots them.
+        finalizedRowCount: nextRows.length,
         mode: "streaming",
         inputBuffer: "",
         statusMessage: undefined,
       };
+    }
     case "end-stream":
       return {
         ...state,
         mode: "input",
+        // Promote everything streamed during this turn into the Static
+        // scroll so future renders skip re-computing them.
+        finalizedRowCount: state.rows.length,
         activeCalls: new Map(),
       };
     case "stream-chunk":
@@ -166,6 +188,7 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         rows: [],
+        finalizedRowCount: 0,
         pending: [],
         conversationId: action.conversationId ?? state.conversationId,
         mode: "input",
@@ -308,16 +331,22 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
   const { exit } = useApp();
   const { stdout } = useStdout();
 
-  const [state, dispatch] = useReducer(reducer, undefined, () => ({
-    rows: props.initialMessages ?? [],
-    pending: props.initialPendingChanges ?? [],
-    aura: props.initialAura ?? { current: 1000, max: 1000 },
-    mode: "input" as const,
-    inputBuffer: "",
-    activeCalls: new Map(),
-    toolsExpanded: false,
-    statusMessage: undefined,
-  }));
+  const [state, dispatch] = useReducer(reducer, undefined, () => {
+    const initialRows = props.initialMessages ?? [];
+    return {
+      rows: initialRows,
+      // Hydrated messages render in the static scroll from the start —
+      // they were finalized in a previous session.
+      finalizedRowCount: initialRows.length,
+      pending: props.initialPendingChanges ?? [],
+      aura: props.initialAura ?? { current: 1000, max: 1000 },
+      mode: "input" as const,
+      inputBuffer: "",
+      activeCalls: new Map(),
+      toolsExpanded: false,
+      statusMessage: undefined,
+    };
+  });
 
   // Stash latest pending changes from any tool-output that brings them.
   // The mutation tools don't echo the queue, so we re-query through the
@@ -546,17 +575,21 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
   const cols = Math.max(20, stdout?.columns ?? 80);
   const divider = "─".repeat(cols);
 
-  // Ink's frame-replacement gets confused after upstream stdout writes
-  // (clack spinners, scaffolder logs). Anything in <Static> renders
-  // once into the scroll and never re-prints, which sidesteps the
-  // re-render duplication. Header + finalized chat rows go here; only
-  // the live input / divider / status bar are dynamic below.
+  // Ink's <Static> only re-renders items it hasn't seen before — perfect
+  // for FINALIZED rows (already-streamed assistant text, completed tool
+  // calls) but wrong for the LIVE row currently being built by the
+  // stream (text-delta chunks would otherwise be silently dropped).
+  // Split: rows[0..finalizedRowCount] → Static (renders once, stays);
+  // rows[finalizedRowCount..] → dynamic below, re-renders every chunk.
+  // end-stream snapshots the entire live tail into Static.
+  const finalizedRows = state.rows.slice(0, state.finalizedRowCount);
+  const liveRows = state.rows.slice(state.finalizedRowCount);
   const staticItems: Array<{ key: string; node: React.ReactElement }> = [
     {
       key: "header",
       node: <Header version={CLI_VERSION} />,
     },
-    ...state.rows.map((row, i) => ({
+    ...finalizedRows.map((row, i) => ({
       key: `row-${i}`,
       node: (
         <ChatRowView
@@ -572,6 +605,13 @@ export function ChatApp(props: ChatAppProps): React.ReactElement {
       <Static items={staticItems}>
         {(item) => <React.Fragment key={item.key}>{item.node}</React.Fragment>}
       </Static>
+      {liveRows.map((row, i) => (
+        <ChatRowView
+          key={`live-${i}`}
+          row={row}
+          expanded={row.type === "tool" ? state.toolsExpanded : false}
+        />
+      ))}
       {showThinking(state) ? (
         <Box marginBottom={1}>
           <Text color="cyan">
