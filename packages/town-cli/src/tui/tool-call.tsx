@@ -41,7 +41,7 @@ export function ToolCallView({ call, expanded }: Props): React.ReactElement {
   );
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" marginBottom={1}>
       <Box>
         {dot}
         <Text> </Text>

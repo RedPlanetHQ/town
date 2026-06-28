@@ -73,6 +73,15 @@ model Town {
   // "active" inside the same transaction that applies the shape.
   status        String         @default("active")
 
+  // Pending mutation queue for this town. Each entry mirrors a tool
+  // call the creator agent made:
+  //   { id, kind, payload, summary, createdAt }
+  // Stored at the Town level (not the conversation level) so the queue
+  // persists across `/clear` and CLI restarts. Only an explicit Clear
+  // or Approve from the user — or remove_pending_change from the agent —
+  // drops entries.
+  pendingChanges Json          @default("[]")
+
   aura                 Aura?
   plot                 PlotRow?
   npcs                 Npc[]
@@ -485,13 +494,6 @@ model CreatorConversation {
   // "active" | "cleared". Only one row per (townId, userId) is "active"
   // at any time; the route handler upserts on first turn.
   status    String   @default("active")
-  // Pending mutation queue for this conversation. Each entry mirrors a
-  // tool call the agent made:
-  //   { id, kind, payload, summary, createdAt }
-  // Mutation tools append to this array (and decrement Aura) in the same
-  // transaction. The Approve flow drains it locally → /api/town deploy;
-  // Clear sets it back to [].
-  pendingChanges Json @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

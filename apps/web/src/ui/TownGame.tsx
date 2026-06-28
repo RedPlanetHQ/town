@@ -42,7 +42,8 @@ import { BuildTownCta } from "./BuildTownCta";
 import { CommunityLinks } from "./CommunityLinks";
 import { Flyover } from "./Flyover";
 import { HudButton } from "./HudButton";
-import { PopulationPopover } from "./PopulationPopover";
+import { AuraBar } from "./AuraBar";
+import { PopulationPopover, type Aura } from "./PopulationPopover";
 import { TownRadio } from "./TownRadio";
 import { TransitionLoading } from "./TransitionLoading";
 
@@ -261,6 +262,7 @@ export function TownGame(props: TownGameProps = {}) {
           (owner) as same-height HudButton siblings. */}
       <div className="pointer-events-auto absolute right-3 top-3 z-30 flex items-center gap-2">
         <PopulationBadge
+          townSlug={ownerSlug ?? visitorSlug}
           ownerParticipantKey={
             isVisitor
               ? (props as { ownerParticipantKey: string }).ownerParticipantKey
@@ -363,12 +365,15 @@ export function TownGame(props: TownGameProps = {}) {
 // the local viewer. Clicking the pill opens a directory popover that
 // breaks the count down into NPCs vs Guests with a name search.
 function PopulationBadge({
+  townSlug,
   ownerParticipantKey,
 }: {
+  townSlug: string | undefined;
   ownerParticipantKey: string | null;
 }) {
   const [remotes, setRemotes] = useState(() => getRemotePlayers());
   const [npcCount, setNpcCount] = useState(() => getNpcCount());
+  const [aura, setAura] = useState<Aura | null>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const update = () => setRemotes(getRemotePlayers());
@@ -386,17 +391,51 @@ function PopulationBadge({
     void refreshNpcs();
     return onNpcsChange(update);
   }, []);
+  // Fetch aura once on mount, then refresh on a long interval so the
+  // hourly cron tick eventually surfaces without a page reload. We
+  // don't poll fast — the meter only moves ±50/hour from the cron and
+  // by TURN_COST during owner creator turns, neither of which need
+  // sub-minute latency.
+  useEffect(() => {
+    if (!townSlug) {
+      setAura(null);
+      return;
+    }
+    let cancelled = false;
+    const url = `/api/towns/${encodeURIComponent(townSlug)}/aura`;
+    const fetchOnce = async () => {
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) return;
+        const body = (await res.json()) as Aura;
+        if (!cancelled) setAura({ current: body.current, max: body.max });
+      } catch {
+        // Network blip — keep the last value.
+      }
+    };
+    void fetchOnce();
+    const id = window.setInterval(fetchOnce, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [townSlug]);
   // remotes + NPCs + viewer themselves.
   const total = remotes.length + npcCount + 1;
   const ownerAway =
     !!ownerParticipantKey &&
     !remotes.some((r) => r.participantKey === ownerParticipantKey);
+  const populationLabel = ownerAway
+    ? `Population: ${total} · owner away`
+    : `Population: ${total}`;
   return (
     <div className="relative inline-flex">
       <HudButton
         onClick={() => setOpen((v) => !v)}
         active={open}
-        aria-label={`Population: ${total}${ownerAway ? ", owner not in town" : ""}`}
+        aria-label={`Population: ${total}${ownerAway ? ", owner not in town" : ""}${
+          aura ? `, aura ${aura.current} of ${aura.max}` : ""
+        }`}
         aria-expanded={open}
         aria-haspopup="dialog"
         title={
@@ -405,9 +444,19 @@ function PopulationBadge({
             : `${total} in town — NPCs + visitors + you`
         }
       >
-        {ownerAway ? `Population: ${total} · owner away` : `Population: ${total}`}
+        <span className="inline-flex items-center gap-1.5">
+          <span>{populationLabel}</span>
+          {aura ? (
+            <>
+              <span aria-hidden className="text-paper/30">·</span>
+              <AuraBar current={aura.current} max={aura.max} />
+            </>
+          ) : null}
+        </span>
       </HudButton>
-      {open ? <PopulationPopover onClose={() => setOpen(false)} /> : null}
+      {open ? (
+        <PopulationPopover aura={aura} onClose={() => setOpen(false)} />
+      ) : null}
     </div>
   );
 }

@@ -17,14 +17,24 @@ import {
   onRemotesChange,
   type RemotePlayer,
 } from "../game/realtime";
+import { AuraBar } from "./AuraBar";
 import { CharacterAvatar } from "./CharacterAvatar";
 
+export interface Aura {
+  current: number;
+  max: number;
+}
+
 interface PopulationPopoverProps {
+  /** Aura snapshot fetched by the parent badge — passed in so we don't
+   *  fire a second request when the popover opens. Null when the town
+   *  doesn't have a slug (the unsigned-root playground). */
+  aura: Aura | null;
   /** Close the popover. Bound to outside-click + Esc + the X button. */
   onClose: () => void;
 }
 
-export function PopulationPopover({ onClose }: PopulationPopoverProps) {
+export function PopulationPopover({ aura, onClose }: PopulationPopoverProps) {
   const [query, setQuery] = useState("");
   const [npcs, setNpcs] = useState<NpcRow[]>(() => getNpcs());
   const [remotes, setRemotes] = useState<RemotePlayer[]>(() => getRemotePlayers());
@@ -103,8 +113,18 @@ export function PopulationPopover({ onClose }: PopulationPopoverProps) {
       aria-label="Population directory"
     >
       <div className="flex items-center justify-between gap-2 border-b-2 border-paper/15 px-3 py-2">
-        <span className="text-xs font-bold uppercase tracking-wider text-paper">
-          Population
+        <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-paper">
+          <span>Population</span>
+          {aura ? (
+            <>
+              <span aria-hidden className="text-paper/30">·</span>
+              <AuraBar current={aura.current} max={aura.max} width={48} />
+              <span className="font-mono normal-case tracking-normal text-paper">
+                {aura.current}
+                <span className="text-paper/40">/{aura.max}</span>
+              </span>
+            </>
+          ) : null}
         </span>
         <button
           type="button"

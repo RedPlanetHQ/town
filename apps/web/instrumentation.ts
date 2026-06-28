@@ -29,4 +29,23 @@ export async function register(): Promise<void> {
       err instanceof Error ? err.message : err,
     );
   }
+
+  // Hourly aura regen. The repeatable lives in Redis (BullMQ keys it
+  // by jobName + cron pattern, so re-registering on every boot is a
+  // no-op) and the worker consumes one job per tick.
+  try {
+    const { startAuraRegenWorker } = await import(
+      "./src/worker/aura-regen-worker"
+    );
+    startAuraRegenWorker();
+    const { ensureAuraRegenSchedule } = await import(
+      "./src/lib/queue/aura-regen-queue"
+    );
+    await ensureAuraRegenSchedule();
+  } catch (err) {
+    console.error(
+      "[instrumentation] failed to start aura-regen worker:",
+      err instanceof Error ? err.message : err,
+    );
+  }
 }

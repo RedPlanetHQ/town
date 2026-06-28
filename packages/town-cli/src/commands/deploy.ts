@@ -185,6 +185,137 @@ export interface RunDeployOpts {
   from?: "creator";
 }
 
+export interface RunDeployQuietOpts {
+  dir: string;
+  reflow?: boolean;
+  slug?: string;
+  from?: "creator";
+  /** Reports progress phases without ever writing to stdout. The chat
+   *  surface uses this to drive an inline status message instead of
+   *  letting clack-prompts corrupt the Ink frame. */
+  onPhase?: (phase:
+    | "reading"
+    | "uploading-sprites"
+    | "uploading-town"
+    | "done") => void;
+}
+
+export interface RunDeployQuietResult {
+  version: number;
+  count: number;
+}
+
+/** Internal deploy used by the chat-creator's Approve flow. Same
+ *  pipeline as `runDeploy` but with all clack-prompts / process.exit
+ *  calls stripped — the caller decides how to surface errors. Never
+ *  writes to stdout; safe to invoke from inside an Ink render tree. */
+export async function runDeployQuiet(
+  opts: RunDeployQuietOpts,
+): Promise<RunDeployQuietResult> {
+  const cfg = getConfig();
+  if (!cfg.auth?.pat || !cfg.auth.townUrl) {
+    throw new Error("Not logged in — run `town login` first.");
+  }
+  const { townUrl, pat } = cfg.auth;
+
+  if (!existsSync(opts.dir)) {
+    throw new Error(`No such folder: ${opts.dir}`);
+  }
+
+  opts.onPhase?.("reading");
+  const town = await readTownJson(opts.dir);
+  const customPlots = await readCustomPlots(opts.dir);
+  const npcs = await readNpcsDir(opts.dir);
+  const items = await readItemsDir(opts.dir);
+
+  let slug = opts.slug;
+  if (!slug && town.id) {
+    try {
+      const mine = await fetch(`${townUrl}/api/towns/mine`, {
+        headers: { authorization: `Bearer ${pat}` },
+      });
+      if (mine.ok) {
+        const body = (await mine.json()) as {
+          towns?: Array<{ id: string; slug: string }>;
+        };
+        const found = body.towns?.find((t) => t.id === town.id);
+        if (found) slug = found.slug;
+      }
+    } catch {
+      // fall through to folder-name fallback
+    }
+  }
+  if (!slug) slug = opts.dir.split("/").pop() ?? undefined;
+
+  if (!Array.isArray(town.buildings) || town.buildings.length === 0) {
+    throw new Error("town.json#buildings is empty — every town needs at least HOME.");
+  }
+
+  let mergedCustomPlots: CustomPlotDTO[];
+  if (customPlots.length > 0) {
+    opts.onPhase?.("uploading-sprites");
+    const cache = new Map<string, string>();
+    const out: CustomPlotDTO[] = [];
+    for (const loaded of customPlots) {
+      // Quiet sprite upload — discard log messages. The chat surface
+      // only cares about phase boundaries, not per-file progress.
+      out.push(
+        await uploadLocalSprites(townUrl, pat, loaded, cache, () => {}),
+      );
+    }
+    mergedCustomPlots = out;
+  } else {
+    mergedCustomPlots = town.customPlots ?? [];
+  }
+
+  const hasCatalog = (town.tags && town.tags.length > 0) || items.length > 0;
+  const body: PostBody = {
+    buildings: town.buildings.map((b) => ({
+      id: b.id,
+      plotKey: b.plotKey,
+      ...(b.variantId ? { variantId: b.variantId } : {}),
+      ...(b.label !== undefined ? { label: b.label } : {}),
+      ...(b.groupChatEnabled !== undefined
+        ? { groupChatEnabled: b.groupChatEnabled }
+        : {}),
+    })),
+    customPlots: mergedCustomPlots,
+    npcs,
+    ...(hasCatalog
+      ? { catalog: { tags: town.tags ?? [], items } }
+      : {}),
+  };
+
+  opts.onPhase?.("uploading-town");
+  const params = new URLSearchParams();
+  if (slug) params.set("slug", slug);
+  if (opts.reflow) params.set("reflow", "1");
+  if (opts.from) params.set("from", opts.from);
+  const qs = params.toString();
+  const url = qs ? `${townUrl}/api/town?${qs}` : `${townUrl}/api/town`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${pat}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let parsed: PostError = {};
+    try {
+      parsed = (await res.json()) as PostError;
+    } catch {
+      // ignore
+    }
+    const msg = parsed.detail ?? parsed.error ?? `HTTP ${res.status}`;
+    throw new Error(`Deploy failed: ${msg}`);
+  }
+  const data = (await res.json()) as { version: number; count: number };
+  opts.onPhase?.("done");
+  return data;
+}
+
 export async function runDeploy(opts: RunDeployOpts): Promise<void> {
   p.intro(chalk.bgCyan(chalk.black(" town deploy ")));
 

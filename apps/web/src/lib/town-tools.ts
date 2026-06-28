@@ -255,3 +255,66 @@ export async function webSearch(
     .filter((h) => h.url.length > 0);
   return { hits };
 }
+
+// -----------------------------------------------------------------------------
+// Web page extract
+// -----------------------------------------------------------------------------
+
+export interface WebExtractPage {
+  url: string;
+  content: string;
+}
+
+export interface WebExtractResult {
+  pages: WebExtractPage[];
+}
+
+/** Tavily-backed full-text fetch for explicit URLs. Different surface
+ *  from webSearch: this is for "user gave us a URL, read it deeply"
+ *  rather than "search the index for snippets." Cap content per page
+ *  to keep the model context lean — the creator only needs themes, not
+ *  the full page body. */
+export async function webExtract(
+  urls: string[],
+  perPageCharLimit = 4000,
+): Promise<WebExtractResult> {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) throw new Error("TAVILY_API_KEY not set");
+  const cleaned = urls
+    .map((u) => u.trim())
+    .filter((u) => /^https?:\/\//.test(u))
+    .slice(0, 5); // Tavily allows more, but multi-page calls get slow.
+  if (cleaned.length === 0) return { pages: [] };
+
+  const res = await fetch("https://api.tavily.com/extract", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      api_key: apiKey,
+      urls: cleaned,
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`tavily extract ${res.status}: ${detail.slice(0, 300)}`);
+  }
+  const body = (await res.json()) as {
+    results?: Array<{ url?: string; raw_content?: string }>;
+  };
+  const pages: WebExtractPage[] = (body.results ?? [])
+    .map((r) => {
+      const raw =
+        typeof r.raw_content === "string"
+          ? r.raw_content.slice(0, perPageCharLimit)
+          : "";
+      // Same prompt-injection guard as webSearch — wrap in
+      // <untrusted>…</untrusted> so model treats page text as data.
+      const safe = raw.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return {
+        url: typeof r.url === "string" ? r.url : "",
+        content: safe ? `<untrusted>${safe}</untrusted>` : "",
+      };
+    })
+    .filter((p) => p.url.length > 0);
+  return { pages };
+}

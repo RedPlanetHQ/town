@@ -1,14 +1,14 @@
-// `town new [name]` — create a fresh town and drop into the chat surface.
+// `town new [name]` — create a fresh town folder.
 //
 // Flow:
 //   1. Name from the positional arg, OR via the Ink <NamePrompt>.
 //   2. POST /api/towns/me { name } → server creates the town row.
 //   3. Scaffold ./<slug>/ with the day-zero trio + default NPCs.
-//   4. chdir into ./<slug>/ so subsequent commands feel like they were
-//      run from the new folder.
-//   5. Render <ChatApp> with a kickoff line introducing the scaffolded
-//      buildings — the user types what they want next and watches the
-//      model stage changes.
+//   4. Exit with a hint: `cd <slug> && town` to enter the chat creator.
+//
+// We intentionally do NOT auto-launch chat here. Splitting scaffold
+// from chat lets the user inspect the folder, commit to git, or open
+// in their editor before starting the creator loop.
 
 import { Command } from "commander";
 import * as p from "@clack/prompts";
@@ -28,7 +28,7 @@ import {
   applyChangesLocally,
   type CreatorChange,
 } from "../tui/apply-changes.js";
-import { runDeploy } from "./deploy.js";
+import { runDeployQuiet } from "./deploy.js";
 
 interface TownsMeCreate {
   town: { id: string; slug: string; name: string };
@@ -113,16 +113,27 @@ export interface LaunchChatOpts {
   townId: string;
   cwd: string;
   kickoff?: string;
+  /** Display name interpolated into the Town Creator's default
+   *  greeting. Optional — falls back to a generic "this town" line. */
+  townName?: string;
 }
 
 export async function launchChat(opts: LaunchChatOpts): Promise<void> {
   return new Promise((resolveChat) => {
-    // Clear the terminal + enter the alternate screen buffer before Ink
-    // mounts. Without this, prior stdout (clack spinners, scaffolder
-    // logs) leaves Ink unable to position its cursor — every keystroke
-    // re-prints the header instead of patching in place. The escape
-    // sequences are restored on exit via Ink's stdout restore.
-    process.stdout.write("\x1b[?1049h\x1b[H");
+    // Switch to the alt screen buffer + clear + home cursor.
+    //
+    // Why alt screen (and not just clear): Ink positions its dynamic
+    // frame relative to where its first render ended. In the main
+    // buffer, when our frame plus the growing chat history exceeds the
+    // terminal viewport, Ink's cursor-up math goes wrong and every
+    // re-render APPENDS instead of REPLACING (you'd see a stack of
+    // duplicate dividers as you type). Alt screen gives Ink a known
+    // virtual canvas where its cursor tracking stays honest.
+    //
+    // The trade-off is that the terminal's native scrollback isn't
+    // preserved — we'll surface long histories via in-chat pagination
+    // rather than terminal scroll.
+    process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H");
     const app = render(
       <ChatApp
         townUrl={opts.townUrl}
@@ -130,45 +141,72 @@ export async function launchChat(opts: LaunchChatOpts): Promise<void> {
         townSlug={opts.townSlug}
         cwd={opts.cwd}
         kickoff={opts.kickoff}
-        onApply={async (changes) => {
-          // Apply staged changes to the local folder, then redeploy
-          // with ?from=creator so the server flips renovating/active.
-          await applyChangesLocally(opts.cwd, changes as CreatorChange[]);
-          await runDeploy({ dir: opts.cwd, from: "creator" });
-          // Drop the server-side queue so the next turn doesn't re-stage
-          // the same diffs.
-          await fetch(`${opts.townUrl}/api/creator`, {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              authorization: `Bearer ${opts.pat}`,
-            },
-            body: JSON.stringify({
-              townSlug: opts.townSlug,
-              action: "clear-changes",
-            }),
-          });
-          // Re-fetch aura for the status bar — both POST /api/town and
-          // the apply hit aura via tools, so we want to surface the
-          // freshest value.
-          try {
-            const res = await fetch(`${opts.townUrl}/api/towns/mine`, {
-              headers: { authorization: `Bearer ${opts.pat}` },
-            });
-            if (res.ok) {
-              const body = (await res.json()) as {
-                towns?: Array<{
-                  slug: string;
-                  aura?: { current: number; max: number };
-                }>;
-              };
-              const me = body.towns?.find((t) => t.slug === opts.townSlug);
-              if (me?.aura) return { aura: me.aura };
+        townName={opts.townName}
+        onApply={async (changes, hooks) => {
+          // 1. Apply staged changes to the local folder (fast — fs +
+          //    sprite fetch). We await this so the chat surface knows
+          //    when the diff has visibly cleared.
+          await applyChangesLocally(
+            opts.cwd,
+            changes as CreatorChange[],
+            opts.townUrl,
+          );
+          // 2. Kick off the redeploy in the background. We do NOT
+          //    await it — the chat surface stays usable, and we drive
+          //    its inline status via the phase callbacks. runDeployQuiet
+          //    never writes to stdout (no clack-prompts), so it can't
+          //    corrupt the Ink frame the way runDeploy used to.
+          hooks.onDeployPhase("deploying");
+          void (async () => {
+            try {
+              await runDeployQuiet({
+                dir: opts.cwd,
+                from: "creator",
+              });
+              // 2a. Drop the server-side queue so the next turn doesn't
+              //     re-stage the same diffs.
+              await fetch(`${opts.townUrl}/api/creator`, {
+                method: "POST",
+                headers: {
+                  "content-type": "application/json",
+                  authorization: `Bearer ${opts.pat}`,
+                },
+                body: JSON.stringify({
+                  townSlug: opts.townSlug,
+                  action: "clear-changes",
+                }),
+              });
+              // 2b. Refresh aura — both POST /api/town and the apply
+              //     hit aura via tools, so we want the freshest value.
+              let aura: { current: number; max: number } | undefined;
+              try {
+                const res = await fetch(
+                  `${opts.townUrl}/api/towns/mine`,
+                  { headers: { authorization: `Bearer ${opts.pat}` } },
+                );
+                if (res.ok) {
+                  const body = (await res.json()) as {
+                    towns?: Array<{
+                      slug: string;
+                      aura?: { current: number; max: number };
+                    }>;
+                  };
+                  const me = body.towns?.find(
+                    (t) => t.slug === opts.townSlug,
+                  );
+                  if (me?.aura) aura = me.aura;
+                }
+              } catch {
+                // tolerated — next turn will refresh anyway.
+              }
+              hooks.onDeployPhase("deployed", aura ? { aura } : undefined);
+            } catch (err) {
+              hooks.onDeployPhase("failed", {
+                message:
+                  err instanceof Error ? err.message : "unknown error",
+              });
             }
-          } catch {
-            // tolerated — the next turn will refresh anyway.
-          }
-          return;
+          })();
         }}
       />,
     );
@@ -222,18 +260,15 @@ async function runNew(positionalName: string | undefined): Promise<void> {
   await scaffoldNew(pat, targetDir, coreUrl, created.town.id);
   p.log.success(`Scaffolded ./${created.town.slug}/`);
 
-  // chdir so the chat surface's `cwd` line reads relative to the new
-  // folder, and so a subsequent `town deploy` (without --slug) works.
-  process.chdir(targetDir);
-
-  await launchChat({
-    townUrl,
-    pat,
-    townSlug: created.town.slug,
-    townId: created.town.id,
-    cwd: targetDir,
-    kickoff: `I've scaffolded ${created.town.name} with home, library, store. Tell me what kind of town you're building.`,
-  });
+  // Hand off to the chat surface explicitly — keeps `town new` as a
+  // pure scaffold step the user can pause on (inspect files, commit
+  // to git) before entering the creator loop.
+  console.log("");
+  console.log(
+    `  ${chalk.cyan("cd")} ${chalk.bold(created.town.slug)} ${chalk.dim("&&")} ${chalk.cyan("town")}`,
+  );
+  console.log(chalk.dim("  ↑ run that to open the chat creator."));
+  console.log("");
 }
 
 export function registerNew(program: Command): void {

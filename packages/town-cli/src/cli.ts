@@ -63,10 +63,13 @@ program.action(async () => {
     console.error(err instanceof Error ? err.message : err);
     process.exit(1);
   }
-  // Resolve the slug: prefer the server-issued id stash via
+  // Resolve the slug + name: prefer the server-issued id stash via
   // /api/towns/mine when it's present, otherwise fall back to the
   // folder name. The fallback lets pre-id-stash folders still work.
+  // Name is best-effort — it feeds the Town Creator's greeting in
+  // chat; an empty value just produces a generic line.
   let slug: string | undefined;
+  let name: string | undefined;
   if (townJson.id) {
     try {
       const res = await fetch(`${townUrl}/api/towns/mine`, {
@@ -74,10 +77,13 @@ program.action(async () => {
       });
       if (res.ok) {
         const body = (await res.json()) as {
-          towns?: Array<{ id: string; slug: string }>;
+          towns?: Array<{ id: string; slug: string; name: string }>;
         };
         const me = body.towns?.find((t) => t.id === townJson.id);
-        if (me) slug = me.slug;
+        if (me) {
+          slug = me.slug;
+          name = me.name;
+        }
       }
     } catch {
       // ignored — folder name fallback below.
@@ -93,6 +99,7 @@ program.action(async () => {
     townSlug: slug,
     townId: townJson.id ?? "",
     cwd,
+    townName: name,
   });
 });
 

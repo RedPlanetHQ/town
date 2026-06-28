@@ -33,10 +33,16 @@ export const getCurrentTownTool = (ctx: ToolContext) =>
       "Get the current state of the town being edited (buildings + NPCs + aura) and this conversation's pending diff.",
     inputSchema: z.object({}),
     execute: async () => {
-      const [town, aura, plot, npcs, convo] = await Promise.all([
+      const [town, aura, plot, npcs] = await Promise.all([
         ctx.prisma.town.findUnique({
           where: { id: ctx.townId },
-          select: { id: true, slug: true, name: true, status: true },
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            status: true,
+            pendingChanges: true,
+          },
         }),
         ctx.prisma.aura.findUnique({ where: { townId: ctx.townId } }),
         ctx.prisma.plotRow.findUnique({ where: { townId: ctx.townId } }),
@@ -50,13 +56,9 @@ export const getCurrentTownTool = (ctx: ToolContext) =>
             description: true,
           },
         }),
-        ctx.prisma.creatorConversation.findUnique({
-          where: { id: ctx.conversationId },
-          select: { pendingChanges: true },
-        }),
       ]);
-      const changes = Array.isArray(convo?.pendingChanges)
-        ? (convo!.pendingChanges as Array<{
+      const changes = Array.isArray(town?.pendingChanges)
+        ? (town!.pendingChanges as Array<{
             id: string;
             kind: string;
             payload: object;
@@ -75,10 +77,20 @@ export const getCurrentTownTool = (ctx: ToolContext) =>
             }>;
           }
         | undefined;
+      // Strip pendingChanges out of the spread — we surface it under
+      // a sibling key so the model doesn't see it twice.
+      const townOut = town
+        ? {
+            id: town.id,
+            slug: town.slug,
+            name: town.name,
+            status: town.status,
+          }
+        : null;
       return {
-        town: town
+        town: townOut
           ? {
-              ...town,
+              ...townOut,
               aura: { current: aura?.current ?? 1000, max: aura?.max ?? 1000 },
             }
           : null,
