@@ -25,14 +25,54 @@ import { getRedisConnection } from "../lib/queue/redis";
 // max of 1000, an emptied town refills in 20 hours.
 export const AURA_REGEN_AMOUNT = 50;
 
-async function processJob(job: Job<AuraRegenJobData>): Promise<void> {
-  const start = Date.now();
-  const updated = await prisma.$executeRaw`
+/** True when the error looks like an RDS-killed-idle-connection
+ *  situation. Prisma surfaces these as messages containing "Closed",
+ *  "connection lost", "ECONNRESET", or "terminating connection". We
+ *  match on any of those and treat the next attempt as fresh. */
+function isClosedConnectionError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /Closed/i.test(msg) ||
+    /connection lost/i.test(msg) ||
+    /ECONNRESET/.test(msg) ||
+    /terminating connection/i.test(msg) ||
+    /server closed the connection/i.test(msg)
+  );
+}
+
+async function runAuraUpdate(): Promise<number> {
+  return await prisma.$executeRaw`
     UPDATE "Aura"
     SET "current" = LEAST("current" + ${AURA_REGEN_AMOUNT}, "max"),
         "updatedAt" = NOW()
     WHERE "current" < "max"
   `;
+}
+
+async function processJob(job: Job<AuraRegenJobData>): Promise<void> {
+  const start = Date.now();
+  // RDS aggressively closes idle pool connections (default 5min on most
+  // tiers). The hourly cron always finds dead sockets between ticks
+  // because nothing else in this worker process is hitting the DB.
+  // Retry exactly once after a forced reconnect — if it still fails,
+  // bubble so BullMQ records the failure and we get a real signal.
+  let updated: number;
+  try {
+    updated = await runAuraUpdate();
+  } catch (err) {
+    if (!isClosedConnectionError(err)) throw err;
+    console.warn(
+      `[aura-regen] tick ${job.id ?? "?"} hit closed connection — reconnecting + retrying`,
+    );
+    try {
+      await prisma.$disconnect();
+    } catch {
+      // disconnect can throw on an already-dead pool; safe to swallow
+      // before we re-connect below.
+    }
+    await prisma.$connect();
+    updated = await runAuraUpdate();
+  }
   console.log(
     `[aura-regen] tick ${job.id ?? "?"} → topped up ${updated} town(s) in ${Date.now() - start}ms`,
   );

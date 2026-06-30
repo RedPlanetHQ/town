@@ -6,10 +6,13 @@
 // generous (3s) — plot edits aren't real-time-critical, and the probe
 // endpoint returns only the version int so it's cheap.
 //
-// `viewerTownSlug` (settable via setViewerTownSlug) routes the fetch to
-// /api/plot?town=<slug> so visitors of another town read that town's plot
-// instead of their own. The owner's UI leaves it null and gets the
-// signed-in user's plot as before.
+// Two slug slots, mutually exclusive:
+//   • viewerTownSlug → visitor mode → /api/plot?town=<slug>. The
+//     server gates on a per-slug visitor cookie.
+//   • ownerTownSlug → owner mode → /api/plot?slug=<slug>. Required
+//     when the owner holds multiple towns; the server returns
+//     `missing-slug` otherwise.
+// Setting one clears the other so we never send both query params.
 
 import type { Plot } from "@town/plot";
 
@@ -22,10 +25,22 @@ export interface PlotPayload {
 
 let activeAbort: AbortController | null = null;
 let viewerTownSlug: string | null = null;
+let ownerTownSlug: string | null = null;
 let cachedPlot: Plot | null = null;
 
 export function setViewerTownSlug(slug: string | null): void {
   viewerTownSlug = slug;
+  if (slug) ownerTownSlug = null;
+}
+
+/** Owner-mode setter. Tells plotClient which of the caller's owned
+ *  towns to fetch — required for multi-town owners because the server
+ *  refuses an ambiguous /api/plot otherwise. Single-town owners can
+ *  still set this; the server treats `?slug=<the only one>` identically
+ *  to no slug. */
+export function setOwnerTownSlug(slug: string | null): void {
+  ownerTownSlug = slug;
+  if (slug) viewerTownSlug = null;
 }
 
 /** Stash the active plot so other scenes (interior) can read its slot
@@ -55,7 +70,14 @@ export function getViewerTownSlug(): string | null {
 
 function url(probe: boolean): string {
   const qs = new URLSearchParams();
-  if (viewerTownSlug) qs.set("town", viewerTownSlug);
+  if (viewerTownSlug) {
+    qs.set("town", viewerTownSlug);
+  } else if (ownerTownSlug) {
+    // Owner-mode: disambiguate which of the caller's towns to fetch.
+    // Without this, multi-town owners get `missing-slug` back from
+    // /api/plot and the canvas never paints.
+    qs.set("slug", ownerTownSlug);
+  }
   if (probe) qs.set("probe", "1");
   const q = qs.toString();
   return q ? `/api/plot?${q}` : "/api/plot";

@@ -7,7 +7,7 @@ import { refreshSession } from "../game/auth";
 import { startSuggestionsPoller } from "../game/suggestions";
 import { startWorkspaceSync } from "../game/workspace";
 import { startNpcsSync, getNpcCount, onNpcsChange, refreshNpcs } from "../game/npcs";
-import { setViewerTownSlug } from "../game/plotClient";
+import { setOwnerTownSlug, setViewerTownSlug } from "../game/plotClient";
 import { setPlayerCharacter } from "../game/character";
 import {
   startRealtime,
@@ -135,7 +135,11 @@ export function TownGame(props: TownGameProps = {}) {
       setViewerTownSlug(visitorSlug ?? null);
       setPlayerCharacter(visitorCharacter ?? OWNER_DEFAULT_CHARACTER);
     } else {
-      setViewerTownSlug(null);
+      // Owner-mode: pass the active slug so plotClient can disambiguate
+      // when the user owns multiple towns. Falls back to null when the
+      // page is the guest playground at `/` (no slug, single-town flow
+      // still works because the server returns the only town).
+      setOwnerTownSlug(ownerSlug ?? null);
       setPlayerCharacter(ownerCharacter ?? OWNER_DEFAULT_CHARACTER);
     }
 

@@ -1,11 +1,46 @@
 {
   "buildings": [
-    { "id": "hq",      "plotKey": "home",     "variantId": "home.cottage",               "label": "Roast Town" },
-    { "id": "dojo",    "plotKey": "gym",      "variantId": "gym.the-iron-room",          "label": "Burn Dojo" },
-    { "id": "bar",     "plotKey": "store",    "variantId": "store.first-pour",           "label": "Clap-Back Bar" },
-    { "id": "pitch",   "plotKey": "office",   "variantId": "office.pitch-wall",          "label": "The Pitch Room" },
-    { "id": "studio",  "plotKey": "studio",   "variantId": "studio.atelier",             "label": "The Design Studio" },
-    { "id": "culture", "plotKey": "store",    "variantId": "store.the-parlor",           "label": "Culture Corner" },
-    { "id": "den",     "plotKey": "workshop", "variantId": "workshop.the-server-closet", "label": "The Dev Den" }
+    {
+      "id": "home",
+      "plotKey": "home",
+      "variantId": "home.cottage",
+      "label": "Roast Town"
+    },
+    {
+      "id": "dojo",
+      "plotKey": "gym",
+      "variantId": "gym.the-iron-room",
+      "label": "Burn Dojo"
+    },
+    {
+      "id": "bar",
+      "plotKey": "store",
+      "variantId": "store.first-pour",
+      "label": "Clap-Back Bar"
+    },
+    {
+      "id": "pitch",
+      "plotKey": "office",
+      "variantId": "office.pitch-wall",
+      "label": "The Pitch Room"
+    },
+    {
+      "id": "studio",
+      "plotKey": "studio",
+      "variantId": "studio.atelier",
+      "label": "The Design Studio"
+    },
+    {
+      "id": "culture",
+      "plotKey": "store",
+      "variantId": "store.the-parlor",
+      "label": "Culture Corner"
+    },
+    {
+      "id": "den",
+      "plotKey": "workshop",
+      "variantId": "workshop.the-server-closet",
+      "label": "The Dev Den"
+    }
   ]
 }
