@@ -13,13 +13,19 @@ import { ui } from "./store";
 //   • Also surfaces the raw code for users who'd rather paste it.
 //   • Reset button mints a fresh code (invalidates the old one immediately).
 //
-// Fetches the slug + code on mount via /api/towns/me and
-// /api/towns/{slug}/share-code. Both endpoints are owner-only — the menu
-// itself is only mounted on the owner side, so unauthenticated callers
-// shouldn't see this.
-export function Invite() {
-  const [slug, setSlug] = useState<string | null>(null);
-  const [townName, setTownName] = useState<string | null>(null);
+// Slug + name come from the parent (TownGame). We previously fetched
+// /api/towns/me here, but that returns the OLDEST owned town — so a
+// multi-town owner viewing /{slug2} would get an invite for slug1.
+// Threading the active slug down avoids the network call and the bug.
+// The share-code endpoint is still hit on mount because the code lives
+// on the Town row and can be rotated independently.
+export interface InviteProps {
+  townSlug: string;
+  townName: string;
+}
+
+export function Invite({ townSlug, townName }: InviteProps) {
+  const slug = townSlug;
   const [code, setCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [rotating, setRotating] = useState(false);
@@ -39,26 +45,8 @@ export function Invite() {
     let cancelled = false;
     (async () => {
       try {
-        const meRes = await fetch("/api/towns/me", { cache: "no-store" });
-        if (!meRes.ok) {
-          setError("Couldn't load your town. Try again.");
-          setLoading(false);
-          return;
-        }
-        const me = (await meRes.json()) as {
-          town: { slug: string; name: string } | null;
-        };
-        if (!me.town) {
-          setError("You don't have a town yet.");
-          setLoading(false);
-          return;
-        }
-        if (cancelled) return;
-        setSlug(me.town.slug);
-        setTownName(me.town.name);
-
         const codeRes = await fetch(
-          `/api/towns/${me.town.slug}/share-code`,
+          `/api/towns/${slug}/share-code`,
           { cache: "no-store" },
         );
         if (!codeRes.ok) {
@@ -83,7 +71,7 @@ export function Invite() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [slug]);
 
   const inviteUrl = useMemo(() => {
     if (!slug) return null;
@@ -145,7 +133,7 @@ export function Invite() {
               Invite
             </div>
             <h2 className="mt-1 text-2xl font-black leading-tight text-paper">
-              {townName ?? "Your town"}
+              {townName}
             </h2>
           </div>
           <button

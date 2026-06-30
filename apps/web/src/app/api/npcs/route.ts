@@ -14,6 +14,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { readActiveSlug } from "@/lib/active-slug";
 import { resolveUser } from "@/lib/auth-bearer";
 import { prisma } from "@/lib/db";
 import { ensureNpcsForTown } from "@/lib/plot";
@@ -80,14 +81,27 @@ export async function GET(req: Request) {
   if (!resolved) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  // No slug → pick the caller's most-recently-updated town. Multi-town
-  // owners get a defined-but-arbitrary roster; the CLI deploy path always
-  // includes a slug.
-  const ownTown = await prisma.town.findFirst({
-    where: { ownerId: resolved.user.id },
-    orderBy: { updatedAt: "desc" },
-    select: { id: true },
-  });
+  // No `?town=` query → prefer the active-slug cookie (which the proxy
+  // writes on every /{slug} visit) so multi-town owners get the town
+  // they're currently viewing. Falls back to the most-recently-updated
+  // town only when no cookie is present, e.g. CLI hits before the
+  // browser ever visited the new town.
+  let ownTown: { id: string } | null = null;
+  const activeSlug = await readActiveSlug();
+  if (activeSlug) {
+    const cookieTown = await prisma.town.findFirst({
+      where: { slug: activeSlug, ownerId: resolved.user.id },
+      select: { id: true },
+    });
+    if (cookieTown) ownTown = cookieTown;
+  }
+  if (!ownTown) {
+    ownTown = await prisma.town.findFirst({
+      where: { ownerId: resolved.user.id },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true },
+    });
+  }
   if (!ownTown) {
     return NextResponse.json({ npcs: [] });
   }

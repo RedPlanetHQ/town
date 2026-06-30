@@ -23,9 +23,17 @@ import { ui } from "./store";
 //     no public intent accepts an attached file. Their link previews
 //     come from the page's OG card (which is the same image), so the
 //     postcard still shows up at the destination.
-export function ShareImage() {
-  const [slug, setSlug] = useState<string | null>(null);
-  const [townName, setTownName] = useState<string | null>(null);
+//
+// Slug + name come from the parent (TownGame) so multi-town owners
+// share the town they're currently viewing. The previous /api/towns/me
+// path returned the OLDEST owned town — wrong for multi-town owners.
+export interface ShareImageProps {
+  townSlug: string;
+  townName: string;
+}
+
+export function ShareImage({ townSlug, townName }: ShareImageProps) {
+  const slug = townSlug;
   const [code, setCode] = useState<string | null>(null);
   const [imageBlob, setImageBlob] = useState<Blob | null>(null);
   const [imageObjectUrl, setImageObjectUrl] = useState<string | null>(null);
@@ -42,42 +50,19 @@ export function ShareImage() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Single mount-time effect: fetch slug → share code → postcard PNG.
-  // We hold the blob so Download + native Share can pass a File
-  // payload, and an object URL so the <img> can paint without a base64
-  // round-trip.
+  // Single mount-time effect: fetch share code → postcard PNG. We hold
+  // the blob so Download + native Share can pass a File payload, and
+  // an object URL so the <img> can paint without a base64 round-trip.
   useEffect(() => {
     let cancelled = false;
     let createdObjectUrl: string | null = null;
     (async () => {
       try {
-        const meRes = await fetch("/api/towns/me", { cache: "no-store" });
-        if (!meRes.ok) {
-          if (!cancelled) {
-            setError("Couldn't load your town.");
-            setLoading(false);
-          }
-          return;
-        }
-        const me = (await meRes.json()) as {
-          town: { slug: string; name: string } | null;
-        };
-        if (!me.town) {
-          if (!cancelled) {
-            setError("You don't have a town yet.");
-            setLoading(false);
-          }
-          return;
-        }
-        if (cancelled) return;
-        setSlug(me.town.slug);
-        setTownName(me.town.name);
-
         // Share code — best effort. The buttons still work without it
         // (URL just lacks the prefill query param).
         try {
           const codeRes = await fetch(
-            `/api/towns/${me.town.slug}/share-code`,
+            `/api/towns/${slug}/share-code`,
             { cache: "no-store" },
           );
           if (codeRes.ok) {
@@ -92,7 +77,7 @@ export function ShareImage() {
         // latest plot — the server endpoint sends cache headers for
         // the social bots, we don't want the modal to surface stale.
         const png = await fetch(
-          `/api/towns/${me.town.slug}/postcard.png?t=${Date.now()}`,
+          `/api/towns/${slug}/postcard.png?t=${Date.now()}`,
           { cache: "no-store" },
         );
         if (!png.ok) {
@@ -119,7 +104,7 @@ export function ShareImage() {
       cancelled = true;
       if (createdObjectUrl) URL.revokeObjectURL(createdObjectUrl);
     };
-  }, []);
+  }, [slug]);
 
   const shareUrl = useMemo(() => {
     if (!slug) return null;

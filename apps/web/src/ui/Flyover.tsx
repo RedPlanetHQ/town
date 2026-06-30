@@ -70,10 +70,13 @@ export function Flyover({ townName, onClose }: FlyoverProps) {
   const [progress, setProgress] = useState(0);
   const [recording, setRecording] = useState<"idle" | "running" | "ready" | "unsupported">("idle");
   const [download, setDownload] = useState<{ url: string; mime: string } | null>(null);
-  // Owner mode passes townName=null; we backfill it from /api/towns/me
-  // on mount. The ref version is what the raf draw loop reads so it
-  // doesn't need to re-attach when the React state updates.
-  const [resolvedName, setResolvedName] = useState<string | null>(townName);
+  // Parent (TownGame → BottomToolbar) now passes townName for both
+  // owner and visitor modes. We previously fell back to /api/towns/me
+  // when null, but that endpoint returns the OLDEST owned town — so
+  // multi-town owners viewing /{slug2} got a flyover captioned with
+  // slug1's name. The ref version is what the raf draw loop reads so
+  // it doesn't need to re-attach when the React state updates.
+  const resolvedName = townName;
   const resolvedNameRef = useRef<string | null>(townName);
   resolvedNameRef.current = resolvedName;
 
@@ -87,28 +90,7 @@ export function Flyover({ townName, onClose }: FlyoverProps) {
   const downloadRef = useRef<{ url: string; mime: string } | null>(null);
   downloadRef.current = download;
 
-  // 1) Resolve own town name if the parent didn't have one (owner mode).
-  useEffect(() => {
-    if (townName) return;
-    let cancelled = false;
-    void fetch("/api/towns/me", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body: { town?: { name?: string } } | null) => {
-        if (cancelled) return;
-        const name = body?.town?.name;
-        if (typeof name === "string" && name.length > 0) {
-          setResolvedName(name);
-        }
-      })
-      .catch(() => {
-        // Best-effort — fallback copy already in place.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [townName]);
-
-  // 2) Cinematic + recording. One useEffect that owns the source
+  // Cinematic + recording. One useEffect that owns the source
   // canvas lookup, the compositor canvas, the draw loop, and the
   // MediaRecorder lifecycle.
   useEffect(() => {

@@ -43,6 +43,7 @@ import {
 } from "ai";
 import { z } from "zod";
 
+import { readActiveSlug } from "@/lib/active-slug";
 import { resolveUser } from "@/lib/auth-bearer";
 import { getChatModel } from "@/lib/chat-model";
 import { ingestNpcTurn, npcChatSessionId } from "@/lib/core-memory";
@@ -313,14 +314,27 @@ export async function POST(req: Request) {
       });
     }
     npcOwnerId = resolved.user.id;
-    // Legacy owner-only path: pick the caller's most-recently-updated
-    // town. Multi-town owners hitting this endpoint without a townSlug
-    // get a defined-but-arbitrary target.
-    const ownTown = await prisma.town.findFirst({
-      where: { ownerId: resolved.user.id },
-      orderBy: { updatedAt: "desc" },
-      select: { id: true },
-    });
+    // Legacy owner-only path. The client now always sends `townSlug`
+    // (Chat.tsx uses getActiveTownSlug), so this branch is reached only
+    // by very old clients or out-of-band callers. Prefer the active
+    // slug cookie so multi-town owners still hit the right town; fall
+    // back to most-recently-updated only when the cookie is absent.
+    let ownTown: { id: string } | null = null;
+    const activeSlug = await readActiveSlug();
+    if (activeSlug) {
+      const cookieTown = await prisma.town.findFirst({
+        where: { slug: activeSlug, ownerId: resolved.user.id },
+        select: { id: true },
+      });
+      if (cookieTown) ownTown = cookieTown;
+    }
+    if (!ownTown) {
+      ownTown = await prisma.town.findFirst({
+        where: { ownerId: resolved.user.id },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true },
+      });
+    }
     if (!ownTown) {
       return new Response(JSON.stringify({ error: "no-town" }), {
         status: 404,

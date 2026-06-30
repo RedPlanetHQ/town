@@ -10,7 +10,7 @@
 // Owner mode hits `/api/npcs`; visitor mode passes `?town=<slug>` so the
 // server returns the resident's roster (gated by the visitor cookie).
 
-import { getViewerTownSlug } from "./plotClient";
+import { getActiveTownSlug } from "./plotClient";
 
 export type NpcRow = {
   id: string;
@@ -75,7 +75,13 @@ function emit() {
 }
 
 function npcsUrl(): string {
-  const slug = getViewerTownSlug();
+  // Use whichever slug is set — visitor or owner. The /api/npcs `?town=`
+  // branch gates on ownership server-side, so an owner querying their
+  // own town goes through the same code path as a visitor with a
+  // valid cookie. Without this, multi-town owners hit the bare
+  // /api/npcs path and got the "most-recently-updated" roster, which
+  // may not be the town they're currently viewing.
+  const slug = getActiveTownSlug();
   return slug ? `/api/npcs?town=${encodeURIComponent(slug)}` : "/api/npcs";
 }
 

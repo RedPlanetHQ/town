@@ -68,6 +68,22 @@ export function getViewerTownSlug(): string | null {
   return viewerTownSlug;
 }
 
+/** The slug of the owner's currently-active town when the page is an
+ *  owner-mode view, otherwise null. Mirrors getViewerTownSlug for the
+ *  owner path so multi-town owners can address their current town
+ *  from any subsystem (NPC fetch, share-code fetch, etc.). */
+export function getOwnerTownSlug(): string | null {
+  return ownerTownSlug;
+}
+
+/** Active town slug regardless of viewer/owner mode. Returns whichever
+ *  of the two slots is currently set, or null when neither is (e.g.
+ *  the guest playground at `/`). Useful for callers that just need
+ *  "what town is this page about" without caring about the mode. */
+export function getActiveTownSlug(): string | null {
+  return viewerTownSlug ?? ownerTownSlug;
+}
+
 function url(probe: boolean): string {
   const qs = new URLSearchParams();
   if (viewerTownSlug) {

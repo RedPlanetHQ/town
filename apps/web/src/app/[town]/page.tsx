@@ -149,6 +149,7 @@ export default async function TownPage({
       <TownGame
         ownerCharacter={owner?.character ?? OWNER_DEFAULT_CHARACTER}
         townSlug={town.slug}
+        townName={town.name}
       />
     );
   }

@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { useChat, type UIMessage } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 
-import { getViewerTownSlug } from "../game/plotClient";
+import { getActiveTownSlug } from "../game/plotClient";
 import { ui, type ChatState } from "./store";
 
 export function Chat({ chat }: { chat: NonNullable<ChatState> }) {
@@ -23,12 +23,13 @@ export function Chat({ chat }: { chat: NonNullable<ChatState> }) {
   // sees who they're talking to before the LLM streams its first turn.
   const greeting = `Hi, I'm ${chat.speaker}. ${chat.description}`.trim();
 
-  // When the player is touring someone else's town, the chat needs to
-  // resolve NPCs against THAT town's owner (not the caller). Sending
-  // the slug along with every message lets the server use the
-  // resolveViewer helper to swap identity context: NPC lookup uses the
-  // town owner, but the prompt knows the speaker is a visitor.
-  const viewerSlug = getViewerTownSlug();
+  // Always send the active town slug — visitor or owner. Visitor mode
+  // needs it so the server resolves NPCs against the TOWN OWNER's
+  // user id (not the caller). Owner mode needs it because multi-town
+  // owners would otherwise hit the legacy "most-recently-updated
+  // town" branch on the server — which can target the wrong town and
+  // chat with the wrong NPC. Single-town owners are unaffected.
+  const viewerSlug = getActiveTownSlug();
 
   const { messages, sendMessage, status, error, stop } = useChat({
     transport: new DefaultChatTransport({

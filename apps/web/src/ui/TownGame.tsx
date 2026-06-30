@@ -65,6 +65,12 @@ export type TownGameProps =
       // Omitted only when rendering the guest playground at `/` — that
       // path has no Town and no realtime.
       townSlug?: string;
+      // Display name for the Invite modal's heading. Multi-town owners
+      // open Invite on whichever town they're viewing, so we pass both
+      // slug + name down from the [town] page rather than guessing
+      // server-side (the old /api/towns/me path returned the OLDEST
+      // town, which was wrong for multi-town owners).
+      townName?: string;
     }
   | {
       viewerMode: "visitor";
@@ -115,6 +121,9 @@ export function TownGame(props: TownGameProps = {}) {
   // warning and a white canvas after the Try-the-demo click.
   const ownerSlug = !isVisitor
     ? (props as { townSlug?: string }).townSlug
+    : undefined;
+  const ownerName = !isVisitor
+    ? (props as { townName?: string }).townName
     : undefined;
   const visitorSlug = isVisitor
     ? (props as { townSlug: string }).townSlug
@@ -305,8 +314,12 @@ export function TownGame(props: TownGameProps = {}) {
       {tasks ? <Tasks /> : null}
       {dialogue ? <Dialogue dialogue={dialogue} /> : null}
       {chat ? <Chat chat={chat} /> : null}
-      {!isVisitor && invite ? <Invite /> : null}
-      {!isVisitor && shareImage ? <ShareImage /> : null}
+      {!isVisitor && invite && ownerSlug ? (
+        <Invite townSlug={ownerSlug} townName={ownerName ?? ownerSlug} />
+      ) : null}
+      {!isVisitor && shareImage && ownerSlug ? (
+        <ShareImage townSlug={ownerSlug} townName={ownerName ?? ownerSlug} />
+      ) : null}
       {!isVisitor && suggestions.open ? (
         <Suggestions list={suggestions.list} />
       ) : null}
@@ -339,7 +352,7 @@ export function TownGame(props: TownGameProps = {}) {
         townName={
           isVisitor
             ? (props as { townName: string }).townName
-            : null
+            : (ownerName ?? null)
         }
       />
 
