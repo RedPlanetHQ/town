@@ -74,22 +74,25 @@ function emit() {
   for (const fn of listeners) fn();
 }
 
-function npcsUrl(): string {
-  // Use whichever slug is set — visitor or owner. The /api/npcs `?town=`
-  // branch gates on ownership server-side, so an owner querying their
-  // own town goes through the same code path as a visitor with a
-  // valid cookie. Without this, multi-town owners hit the bare
-  // /api/npcs path and got the "most-recently-updated" roster, which
-  // may not be the town they're currently viewing.
-  const slug = getActiveTownSlug();
-  return slug ? `/api/npcs?town=${encodeURIComponent(slug)}` : "/api/npcs";
-}
-
 export async function refreshNpcs(): Promise<void> {
   if (inFlight) return inFlight;
+  // PopulationBadge defensively calls refreshNpcs() on its own mount —
+  // but in React, child effects run BEFORE parent effects, so this can
+  // fire before TownGame's boot effect has set the active slug. With
+  // no slug we'd hit /api/npcs without a query, which:
+  //   • 401s for guest visitors (no session, no slug to gate by
+  //     cookie),
+  //   • returns the wrong town's roster for multi-town owners.
+  // Both are wrong outcomes. We treat "no slug yet" as "wait for
+  // startNpcsSync to retry after setViewer/Owner TownSlug runs", and
+  // return without touching the cache so an empty fetch doesn't wipe
+  // a previously-loaded set.
+  const slug = getActiveTownSlug();
+  if (!slug) return;
+  const url = `/api/npcs?town=${encodeURIComponent(slug)}`;
   inFlight = (async () => {
     try {
-      const res = await fetch(npcsUrl(), { cache: "no-store" });
+      const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) {
         byBuildingId = new Map();
       } else {
