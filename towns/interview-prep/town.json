@@ -12,6 +12,7 @@
       "variantId": "tech.den",
       "label": "The Dev Den",
       "groupChatEnabled": true
-    }
+    },
+    { "id": "sales", "plotKey": "custom:sales", "variantId": "sales.floor", "label": "The Sales Floor", "groupChatEnabled": true }
   ]
 }
