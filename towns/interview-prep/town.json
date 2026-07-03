@@ -5,6 +5,13 @@
       "plotKey": "home",
       "variantId": "home.cottage",
       "label": "Interview Prep Town"
+    },
+    {
+      "id": "tech",
+      "plotKey": "custom:tech",
+      "variantId": "tech.den",
+      "label": "The Dev Den",
+      "groupChatEnabled": true
     }
   ]
 }
