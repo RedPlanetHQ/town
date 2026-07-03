@@ -1,0 +1,14 @@
+[
+  {
+    "id": "interview-scorecard",
+    "label": "Interview Scorecard",
+    "description": "Rendered at the end of an interview session — a shareable evaluation with score, one-line verdict, and interviewer attribution. Issue once, only after 3+ substantive exchanges when you've heard enough to score honestly. Do not issue on a bare greeting or a refusal to engage.",
+    "fields": [
+      { "name": "interviewer", "label": "Interviewer's own name (e.g. 'Piers Morgan')", "maxLength": 32 },
+      { "name": "lens", "label": "Interview flavor (e.g. 'Hostile TV', 'FAANG Systems', 'Socratic')", "maxLength": 40 },
+      { "name": "topic", "label": "What was probed — job title, project, question posed, or 'The candidate'", "maxLength": 80 },
+      { "name": "score", "label": "0-10 score on the interviewer's axis. 10 is a rare high.", "maxLength": 4 },
+      { "name": "verdict", "label": "One-line verdict in the interviewer's voice, under 100 characters", "maxLength": 100 }
+    ]
+  }
+]

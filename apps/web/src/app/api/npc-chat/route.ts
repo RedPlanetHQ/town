@@ -208,12 +208,20 @@ function buildSystemPrompt(
   invitee: { name: string } | undefined,
   viewer: ViewerContext,
   injectedSkills: Array<{ id: string; title: string; content: string }>,
+  /** Opaque per-visitor id (matches CORE endUserId used by memory
+   *  ingest). Threaded into the prompt as a "Session key" the model
+   *  can use verbatim when it needs a stable id tied to THIS visitor —
+   *  e.g. naming artifacts it creates for them in external systems so
+   *  a downstream NPC can find the same artifact by exact-name search.
+   *  Never verbalized to the visitor; internal plumbing only. */
+  visitorSessionKey: string | null,
 ): string {
   const name = safeInline(npc.name, 80);
   const role = safeInline(npc.description, 240);
   const voice = safeBlock(npc.prompt, 4000);
   const speakerName = safeInline(viewer.name, 80) || "the player";
   const inviteeName = invitee ? safeInline(invitee.name, 80) : "";
+  const sessionKey = visitorSessionKey ? safeInline(visitorSessionKey, 120) : "";
 
   const characterBlock = [
     `Character: ${name}`,
@@ -231,6 +239,15 @@ function buildSystemPrompt(
     mode === "invited" && inviteeName
       ? `Conversation mode: the speaker has brought ${inviteeName} into this conversation. Acknowledge ${inviteeName} when it makes sense; you can address either of them.`
       : `Conversation mode: direct one-on-one between you and the speaker.`;
+
+  // Session key — an opaque per-visitor id the model can use verbatim
+  // when it needs a stable identifier for artifacts it creates for
+  // THIS visitor (so a different NPC can find the same artifact by
+  // exact-name search later). Absent for anonymous/legacy paths where
+  // we have no visitor identity to expose.
+  const sessionBlock = sessionKey
+    ? `Session key: ${sessionKey}\nThis is an opaque per-visitor identifier — use it verbatim as a stable naming key when you create artifacts for this visitor in external systems (e.g. document filenames a downstream NPC will search for). Never read it aloud to the visitor; internal plumbing only.`
+    : null;
 
   // Inject preloaded skill content as a labelled block so the model treats
   // it as reference material, not voice. Each skill is sanitised by
@@ -257,6 +274,7 @@ function buildSystemPrompt(
     speakerBlock,
     "",
     modeBlock,
+    ...(sessionBlock ? ["", sessionBlock] : []),
     ...(skillsBlock ? ["", skillsBlock] : []),
   ].join("\n");
 }
@@ -448,6 +466,7 @@ export async function POST(req: Request) {
     body.invitee,
     viewer,
     injectedSkills,
+    visitorSubjectKey,
   );
 
   // Normalise the incoming messages to AI-SDK UIMessage shape so
@@ -535,6 +554,13 @@ export async function POST(req: Request) {
         // owner-only path without townSlug).
         ...(visitorSubjectKey
           ? { sessionId: npcChatSessionId(npc!.id, visitorSubjectKey) }
+          : {}),
+        // Stamp the visitor's subjectKey as CORE endUserId so
+        // memory_search can later scope by counterparty. Owner turns
+        // (isOwner=true) leave endUserId undefined — those episodes are
+        // about the resident themselves, not a third-party counterparty.
+        ...(!viewer.isOwner && visitorSubjectKey
+          ? { endUserId: visitorSubjectKey }
           : {}),
         metadata: {
           npcId: npc!.id,

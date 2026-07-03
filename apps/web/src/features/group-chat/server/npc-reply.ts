@@ -107,6 +107,16 @@ NOT on duty.
 
 export interface NpcReplyInput {
   channelId: string;
+  /** Topic the reply belongs to. Null for the always-on "#general"
+   *  thread — mirrors the shape used in the human-message pipeline
+   *  so the wire and DB row are consistent. */
+  topicId: string | null;
+  /** Human-readable title of the topic. Threaded into the NPC's
+   *  system prompt so the model knows what the thread is called and
+   *  can prefer replies that stay on the thread's stated topic.
+   *  Null when the exchange is in #general (no titled thread) or
+   *  when the caller couldn't resolve the row. */
+  topicTitle: string | null;
   pick: ModeratorPick;
   /** NPC's authored row from the Npc table, including permissions so we
    *  can hand the same CORE tool surface to group-chat replies that the
@@ -162,7 +172,7 @@ const HISTORY_TURNS_MAX = 20;
 export async function generateAndPublishNpcReply(
   input: NpcReplyInput,
 ): Promise<void> {
-  const { channelId, pick, npc, owner, history } = input;
+  const { channelId, topicId, topicTitle, pick, npc, owner, history } = input;
 
   // Announce the NPC is "typing" the moment the picker selects them.
   // Centrifugo carries this as an ephemeral pulse — receivers show the
@@ -170,6 +180,7 @@ export async function generateAndPublishNpcReply(
   const typingWire: GroupTypingWire = {
     type: "typing",
     channelId,
+    topicId,
     authorKey: npcAuthorKey(npc.id),
     authorName: npc.name,
     isNpc: true,
@@ -199,6 +210,7 @@ export async function generateAndPublishNpcReply(
     owner,
     pick.addressed,
     injectedSkills,
+    topicTitle,
   );
   const uiMessages = historyToUIMessages(
     history.slice(-HISTORY_TURNS_MAX),
@@ -259,6 +271,7 @@ export async function generateAndPublishNpcReply(
   const row = await prisma.groupMessage.create({
     data: {
       channelId,
+      topicId,
       authorKey: npcAuthorKey(npc.id),
       authorName: npc.name,
       isNpc: true,
@@ -276,6 +289,7 @@ export async function generateAndPublishNpcReply(
     type: "message",
     id: row.id,
     channelId,
+    topicId,
     authorKey: row.authorKey,
     authorName: row.authorName,
     isNpc: true,
@@ -298,11 +312,17 @@ function buildGroupSystemPrompt(
   owner: { name: string },
   addressed: boolean,
   injectedSkills: Array<{ id: string; title: string; content: string }> = [],
+  /** Human-readable title of the topic thread this reply belongs to,
+   *  or null when the exchange is in the always-on #general thread.
+   *  When present, gets called out in the room-context block so the
+   *  NPC knows what the thread is and can stay on-topic. */
+  topicTitle: string | null = null,
 ): string {
   const name = safeInline(npc.name, 80);
   const role = safeInline(npc.description, 240);
   const voice = safeBlock(npc.prompt, 4000);
   const ownerName = safeInline(owner.name, 80) || "the resident";
+  const cleanTopicTitle = topicTitle ? safeInline(topicTitle, 120) : "";
   const tone = addressed
     ? `## This turn\n\nThe most recent message addressed you (${name}) by name. Acknowledge them in character — a greeting, a quip, an observation that fits ${name}'s role and voice. Do NOT slip into assistant mode, do NOT ask what they need.`
     : `## This turn\n\nChime in only if ${name} has something genuinely in-character to add. Stay social, never service. Better to say nothing than to break character.`;
@@ -324,10 +344,19 @@ function buildGroupSystemPrompt(
   //    from visiting guests. Spelled out explicitly so the model
   //    doesn't have to infer the owner/guest distinction from the
   //    prefix alone.
+  // Group-chat framing: the model needs to know it's in a multi-party
+  // room, and — when the exchange is inside a named topic thread —
+  // exactly what that thread is called so its reply stays on-topic.
+  // Human-authored topic titles arrive from the caller sanitised
+  // (safeInline above) so no injection through the title field.
+  const roomLine = cleanTopicTitle
+    ? `You are in a multi-party group chat in a house in the town, inside a thread titled "${cleanTopicTitle}". Prefer replies that stay on that thread's stated topic; if the human message goes wide, follow the human. Other speakers' messages are prefixed with [<name>]; your own past lines arrive unprefixed as assistant turns.`
+    : `You are in a multi-party group chat in a house in the town, in the always-on #general thread (no named topic). Other speakers' messages are prefixed with [<name>]; your own past lines arrive unprefixed as assistant turns.`;
+
   const context = [
     "## Room context",
     "",
-    `You are in a multi-party room conversation in a house in the town. Other speakers' messages are prefixed with [<name>]; your own past lines arrive unprefixed as assistant turns.`,
+    roomLine,
     "",
     `The town owner (the resident — the person who lives here, who you know) is ${ownerName}. Their messages are tagged [owner] regardless of how they're named elsewhere — greet them warmly and treat them as the host.`,
     "",

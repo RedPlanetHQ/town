@@ -1,0 +1,25 @@
+[
+  {
+    "id": "roast-card",
+    "label": "Roast Report Card",
+    "description": "Rendered when a panelist has delivered a clear verdict on the target. A shareable card with score, one-line burn, and panelist attribution. Issue once, at the moment the roast lands — not on small talk, and not before the player has shared a target.",
+    "fields": [
+      { "name": "panelist", "label": "Panelist's own name (e.g. Chad Ventures)", "maxLength": 32 },
+      { "name": "lens", "label": "Panelist's angle (e.g. 'Money / market', 'Taste / craft')", "maxLength": 40 },
+      { "name": "target", "label": "What was roasted — URL, phrase, or 'You'", "maxLength": 80 },
+      { "name": "score", "label": "0-10 verdict score. 10 is the money.", "maxLength": 4 },
+      { "name": "verdict", "label": "One savage sentence — the pull quote on the card.", "maxLength": 90 }
+    ]
+  },
+  {
+    "id": "battle-card",
+    "label": "Clap-Back Battle Card",
+    "description": "Issued at the end of a roast battle at the Clap-Back Bar. Records winner, both sides' strongest lines, and Vinny's final call. Issue once, after the battle has been called.",
+    "fields": [
+      { "name": "winner", "label": "Winner name — 'You' or 'Vinny'", "maxLength": 20 },
+      { "name": "best_line", "label": "Player's strongest burn from the battle, verbatim", "maxLength": 80 },
+      { "name": "opponent_line", "label": "Vinny's strongest burn from the battle, verbatim", "maxLength": 80 },
+      { "name": "verdict", "label": "Vinny's final call — one short line", "maxLength": 80 }
+    ]
+  }
+]

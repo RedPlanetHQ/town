@@ -1,8 +1,15 @@
 # group-chat
 
 Per-house multi-party chat with ambient NPC responses. Walk into a house
-that has it enabled, press **G**, and you join a Twitch-style overlay
+that has it enabled, press **G**, and you join a Slack-style overlay
 shared with everyone (humans + NPCs) in that house.
+
+Topics: signed-in visitors can spin up ad-hoc threads inside a room.
+Caps: max 5 concurrent topics per building, max 2 per user per
+building, hard 1h TTL from `createdAt`. Expired topics disappear from
+the sidebar; their messages stop surfacing in the history backfill.
+`#general` is always present, doesn't expire, and doesn't count
+against caps.
 
 ## Enabling
 

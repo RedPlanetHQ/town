@@ -2,12 +2,16 @@
 //
 // One handler covers every human action in the room:
 //
-//   { kind: "message", text }  → persist + broadcast + maybe trigger NPC
-//   { kind: "typing" }         → ephemeral typing pulse, no persistence
+//   { kind: "message", text, topicId? }  → persist + broadcast + maybe trigger NPC
+//   { kind: "typing", topicId? }         → ephemeral typing pulse, no persistence
 //
 // We collapse these into one route so the client only opens one URL
 // per house. Typing pulses are throttled client-side; the server just
 // republishes them onto the room channel.
+//
+// `topicId` is optional — omitted or null means the always-on
+// "#general" thread. When present, the topic must exist on this
+// channel and be unexpired.
 
 import { z } from "zod";
 
@@ -26,14 +30,21 @@ import {
   resolveGroupChatAccess,
   type GroupChatAccess,
 } from "./access";
-import { markSpoke, pickResponder, type NpcCandidate } from "./moderator";
+import { markSpoke, pickResponder, topicKey, type NpcCandidate } from "./moderator";
 import { generateAndPublishNpcReply } from "./npc-reply";
 
 type Params = { slug: string; building: string };
 
 const BodySchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("message"), text: z.string().min(1).max(2000) }),
-  z.object({ kind: z.literal("typing") }),
+  z.object({
+    kind: z.literal("message"),
+    text: z.string().min(1).max(2000),
+    topicId: z.string().nullish(),
+  }),
+  z.object({
+    kind: z.literal("typing"),
+    topicId: z.string().nullish(),
+  }),
 ]);
 
 export async function POST(req: Request, ctx: { params: Promise<Params> }) {
@@ -52,10 +63,38 @@ export async function POST(req: Request, ctx: { params: Promise<Params> }) {
   const access = await resolveGroupChatAccess(slug, building);
   if ("error" in access) return groupChatErrorResponse(access.error);
 
+  const topicId = body.topicId ?? null;
+  // Human-readable title of the topic — resolved alongside validation
+  // below so we can hand it to the NPC's system prompt without a
+  // second DB round-trip in maybeTriggerNpcReply. Null for #general.
+  let topicTitle: string | null = null;
+  // Validate the topic exists on this channel and hasn't expired.
+  // Skips the DB round-trip for the common #general case.
+  if (topicId !== null) {
+    const topic = await prisma.groupTopic.findUnique({
+      where: { id: topicId },
+      select: { channelId: true, expiresAt: true, title: true },
+    });
+    if (!topic || topic.channelId !== access.channelId) {
+      return new Response(JSON.stringify({ error: "topic-not-found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (topic.expiresAt.getTime() <= Date.now()) {
+      return new Response(JSON.stringify({ error: "topic-expired" }), {
+        status: 410,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    topicTitle = topic.title;
+  }
+
   if (body.kind === "typing") {
     const wire: GroupTypingWire = {
       type: "typing",
       channelId: access.channelId,
+      topicId,
       authorKey: access.viewer.participantKey,
       authorName: access.viewer.displayName,
       isNpc: false,
@@ -76,25 +115,28 @@ export async function POST(req: Request, ctx: { params: Promise<Params> }) {
     });
   }
 
-  // Activity feed: emit "group chat started in <building>" only when
-  // the room has been silent for the last hour — i.e. this human post
-  // is opening a fresh session, not extending an active one. We check
-  // BEFORE inserting so we don't see our own row. NPC replies count as
-  // activity (they keep the room "live"), so a chatty NPC chain bridges
-  // sessions and the next human post within the hour stays silent.
+  // Activity feed: emit "group chat started in <building>" only for
+  // #general and only when the room has been silent for the last hour
+  // — i.e. this human post is opening a fresh session, not extending
+  // an active one. Topic messages don't emit their own beacon (topics
+  // are their own social signal; we'd firehose the feed otherwise).
   const SESSION_WINDOW_MS = 60 * 60 * 1000;
-  const prior = await prisma.groupMessage.findFirst({
-    where: {
-      channelId: access.channelId,
-      createdAt: { gte: new Date(Date.now() - SESSION_WINDOW_MS) },
-    },
-    select: { id: true },
-  });
-  const isFreshSession = !prior;
+  const isFreshSession =
+    topicId === null
+      ? !(await prisma.groupMessage.findFirst({
+          where: {
+            channelId: access.channelId,
+            topicId: null,
+            createdAt: { gte: new Date(Date.now() - SESSION_WINDOW_MS) },
+          },
+          select: { id: true },
+        }))
+      : false;
 
   const row = await prisma.groupMessage.create({
     data: {
       channelId: access.channelId,
+      topicId,
       authorKey: access.viewer.participantKey,
       authorName: access.viewer.displayName,
       isNpc: false,
@@ -122,6 +164,7 @@ export async function POST(req: Request, ctx: { params: Promise<Params> }) {
     type: "message",
     id: row.id,
     channelId: access.channelId,
+    topicId,
     authorKey: row.authorKey,
     authorName: row.authorName,
     isNpc: false,
@@ -133,7 +176,7 @@ export async function POST(req: Request, ctx: { params: Promise<Params> }) {
   // Fire-and-forget the NPC reply. We don't block the HTTP response on
   // it — the poster's send returns instantly, the NPC's reply (if any)
   // arrives over Centrifugo a few seconds later.
-  void maybeTriggerNpcReply(access).catch((e) => {
+  void maybeTriggerNpcReply(access, topicId, topicTitle).catch((e) => {
     console.warn("[group-chat] NPC reply pipeline failed", e);
   });
 
@@ -166,7 +209,11 @@ function isStopRequest(text: string): boolean {
   return STOP_SIGNAL.test(text);
 }
 
-async function maybeTriggerNpcReply(access: GroupChatAccess): Promise<void> {
+async function maybeTriggerNpcReply(
+  access: GroupChatAccess,
+  topicId: string | null,
+  topicTitle: string | null,
+): Promise<void> {
   // Load the NPCs in this house ONCE. Auto-seed if the user's plot
   // predates the Npc table (same heal path /api/npc-chat uses).
   let npcs = await loadNpcsForBuilding(access);
@@ -182,6 +229,7 @@ async function maybeTriggerNpcReply(access: GroupChatAccess): Promise<void> {
     description: n.description,
   }));
   const npcById = new Map(npcs.map((n) => [n.id, n]));
+  const cooldownKey = topicKey(access.channelId, topicId);
 
   // Chain loop — first iteration is the standard "human said something,
   // does any NPC reply?" check. Subsequent iterations are "an NPC just
@@ -196,7 +244,7 @@ async function maybeTriggerNpcReply(access: GroupChatAccess): Promise<void> {
     const isChain = turn > 0;
 
     const recent = await prisma.groupMessage.findMany({
-      where: { channelId: access.channelId },
+      where: { channelId: access.channelId, topicId },
       orderBy: { createdAt: "desc" },
       take: 20,
     });
@@ -223,7 +271,7 @@ async function maybeTriggerNpcReply(access: GroupChatAccess): Promise<void> {
     if (recentHumanRequestedStop(history)) return;
 
     const pick = await pickResponder(
-      access.channelId,
+      cooldownKey,
       history,
       candidates,
       // Chain calls bypass the 8s room cooldown — that floor exists
@@ -251,10 +299,12 @@ async function maybeTriggerNpcReply(access: GroupChatAccess): Promise<void> {
     // message. Stamping just once means the cooldown is fresh
     // relative to the human-triggering event, which is what it's
     // meant to throttle.
-    if (!isChain) markSpoke(access.channelId, picked.id);
+    if (!isChain) markSpoke(cooldownKey, picked.id);
 
     await generateAndPublishNpcReply({
       channelId: access.channelId,
+      topicId,
+      topicTitle,
       pick,
       npc: {
         id: picked.id,

@@ -1,9 +1,10 @@
 "use client";
 
-// Bottom-right non-modal overlay. Renders only when the store says
-// `open` is true. The game keeps running underneath — this is
-// deliberately NOT in ui.isPaused() so the player can walk while the
-// panel is up.
+// Bottom-right non-modal overlay with a Slack-style left sidebar for
+// topics + a right column with the active thread's messages and
+// composer. Renders only when the store says `open` is true. The game
+// keeps running underneath — this is deliberately NOT in ui.isPaused()
+// so the player can walk while the panel is up.
 //
 // Visual language matches the existing Chat / Panel surfaces
 // (paper background, 2px ink border, h240 accent for the local
@@ -11,8 +12,24 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  MAX_TOPICS_PER_BUILDING,
+  MAX_TOPICS_PER_USER,
+  TOPIC_TITLE_MAX,
+  type GroupTopicRow,
+} from "../types";
+import {
+  closeRoom,
+  createTopic,
+  postMessage,
+  publishTyping,
+  switchTopic,
+} from "../client/channel";
 import { useGroupChatState } from "../client/useGroupChatState";
-import { closeRoom, postMessage, publishTyping } from "../client/channel";
+import {
+  selectActiveMessages,
+  selectActiveTyping,
+} from "../client/store";
 import { authorColor } from "./authorColor";
 
 export function GroupChatSurface() {
@@ -21,20 +38,29 @@ export function GroupChatSurface() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState("");
 
+  const activeMessages = useMemo(
+    () => selectActiveMessages(state),
+    [state],
+  );
+  const activeTyping = useMemo(
+    () => selectActiveTyping(state),
+    [state],
+  );
+
   // Keep the list pinned to the bottom on new messages / typing
-  // changes. Same pattern as Chat.tsx.
+  // changes / topic switch. Same pattern as Chat.tsx.
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [state.messages, state.typing]);
+  }, [activeMessages, activeTyping, state.activeTopicId]);
 
-  // Focus the input the moment the overlay opens so the player can
-  // type immediately without clicking.
+  // Focus the input the moment the overlay opens (or user switches
+  // topic) so the player can type immediately without clicking.
   useEffect(() => {
     if (!state.open) return;
     inputRef.current?.focus();
-  }, [state.open]);
+  }, [state.open, state.activeTopicId]);
 
   // ESC closes; G is intentionally NOT handled here — the kaplay
   // scene owns G and toggles us via the store, so the close
@@ -52,10 +78,10 @@ export function GroupChatSurface() {
   }, [state.open]);
 
   const typingNames = useMemo(() => {
-    return Array.from(state.typing.values())
+    return Array.from(activeTyping.values())
       .map((t) => t.authorName)
       .filter((n) => !!n);
-  }, [state.typing]);
+  }, [activeTyping]);
 
   if (!state.open) return null;
 
@@ -65,22 +91,24 @@ export function GroupChatSurface() {
     if (!text) return;
     setInput("");
     void postMessage(text);
-    // Refocus after submit — Chrome sometimes drops focus to body.
     queueMicrotask(() => inputRef.current?.focus());
   };
 
   const ownerKey = state.room?.ownerParticipantKey ?? "";
+  const activeTopic = state.topics.find((t) => t.id === state.activeTopicId);
+  const activeTitle =
+    state.activeTopicId === null ? "general" : activeTopic?.title ?? "topic";
 
   return (
-    <div className="nb-card-dark pointer-events-auto fixed bottom-12 right-4 z-30 flex w-[360px] flex-col gap-2 p-3">
-      <div className="flex items-center justify-between gap-2 border-b-2 border-paper/15 pb-2">
+    <div className="nb-card-dark pointer-events-auto fixed bottom-12 right-4 z-30 flex w-[560px] flex-col gap-2 p-0">
+      <div className="flex items-center justify-between gap-2 border-b-2 border-paper/15 px-3 pb-2 pt-3">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold uppercase tracking-wider text-paper">
             Group chat
           </span>
           {state.room ? (
             <span className="text-xs uppercase tracking-wider text-paper/60">
-              · {state.room.buildingLabel}
+              · {state.room.buildingLabel} · #{activeTitle}
             </span>
           ) : null}
         </div>
@@ -95,57 +123,232 @@ export function GroupChatSurface() {
         </button>
       </div>
 
-      <div
-        ref={listRef}
-        className="flex max-h-[40vh] min-h-[160px] flex-col gap-1.5 overflow-y-auto pr-1"
-      >
-        {state.status === "loading" ? (
-          <div className="text-xs italic text-paper/60">Connecting…</div>
-        ) : null}
-        {state.status === "error" ? (
-          <div className="text-xs italic text-red-400">
-            {state.errorMessage || "Something went wrong"}
+      <div className="flex min-h-[360px] gap-0">
+        <TopicSidebar
+          topics={state.topics}
+          activeTopicId={state.activeTopicId}
+          unreadByTopic={state.unreadByTopic}
+        />
+
+        <div className="flex flex-1 flex-col gap-2 p-3">
+          {/* Grow the list so the composer sits well below the fold on
+              a room with no messages — same "chat lives at the bottom"
+              rhythm the DM overlay has. */}
+          <div
+            ref={listRef}
+            className="flex max-h-[50vh] min-h-[300px] flex-1 flex-col gap-1.5 overflow-y-auto pr-1"
+          >
+            {state.status === "loading" ? (
+              <div className="text-xs italic text-paper/60">Connecting…</div>
+            ) : null}
+            {state.status === "error" ? (
+              <div className="text-xs italic text-red-400">
+                {state.errorMessage || "Something went wrong"}
+              </div>
+            ) : null}
+            {state.status === "ready" && activeMessages.length === 0 ? (
+              <div className="text-xs italic text-paper/60">
+                No messages yet in #{activeTitle} — say hi.
+              </div>
+            ) : null}
+            {activeMessages.map((m) => (
+              <MessageLine key={m.id} m={m} ownerKey={ownerKey} />
+            ))}
           </div>
-        ) : null}
-        {state.status === "ready" && state.messages.length === 0 ? (
-          <div className="text-xs italic text-paper/60">
-            No messages yet — say hi.
-          </div>
-        ) : null}
-        {state.messages.map((m) => (
-          <MessageLine key={m.id} m={m} ownerKey={ownerKey} />
-        ))}
+
+          {typingNames.length > 0 ? (
+            <div className="text-xs italic leading-tight text-paper/70">
+              {formatTypingLine(typingNames)}
+            </div>
+          ) : null}
+
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                // Fire a throttled typing pulse on every keystroke so
+                // co-occupants see "X is typing…" land within ~1s.
+                if (e.target.value.length > 0) publishTyping();
+              }}
+              placeholder={`Message #${activeTitle}`}
+              className="flex-1 border-2 border-paper/20 bg-black/40 px-2 py-1 text-sm text-paper placeholder:text-paper/40 focus:border-paper/50 focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="border-2 border-paper/20 bg-paper px-2 py-1 text-xs font-bold uppercase tracking-wider text-ink disabled:opacity-40"
+            >
+              Send
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TopicSidebar({
+  topics,
+  activeTopicId,
+  unreadByTopic,
+}: {
+  topics: GroupTopicRow[];
+  activeTopicId: string | null;
+  unreadByTopic: Map<string, number>;
+}) {
+  const [showNew, setShowNew] = useState(false);
+  const [title, setTitle] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showNew) titleRef.current?.focus();
+  }, [showNew]);
+
+  // Tick every 30s so "42m left" labels count down without depending
+  // on the store dispatching an unrelated update.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const atRoomCap = topics.length >= MAX_TOPICS_PER_BUILDING;
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const t = title.trim();
+    if (!t) return;
+    setSubmitting(true);
+    setError(null);
+    const res = await createTopic(t);
+    setSubmitting(false);
+    if (!res.ok) {
+      setError(errorCopy(res.error));
+      return;
+    }
+    setTitle("");
+    setShowNew(false);
+  };
+
+  const cancelCreate = () => {
+    setShowNew(false);
+    setTitle("");
+    setError(null);
+  };
+
+  return (
+    <aside className="flex w-[128px] shrink-0 flex-col gap-1 border-r-2 border-paper/15 px-2 py-3">
+      <TopicRow
+        label="general"
+        active={activeTopicId === null}
+        unread={unreadByTopic.get("general") ?? 0}
+        onClick={() => switchTopic(null)}
+      />
+
+      <div className="mt-2 flex items-center justify-between px-1 pb-0.5">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-paper/50">
+          Topics
+        </span>
+        <button
+          type="button"
+          disabled={atRoomCap || showNew}
+          onClick={() => setShowNew(true)}
+          title={
+            atRoomCap
+              ? `This room is at the ${MAX_TOPICS_PER_BUILDING}-topic cap`
+              : "Create a new topic"
+          }
+          aria-label="Create a new topic"
+          className="text-sm font-bold leading-none text-paper/60 hover:text-paper disabled:opacity-30"
+        >
+          +
+        </button>
       </div>
 
-      {typingNames.length > 0 ? (
-        <div className="text-xs italic leading-tight text-paper/70">
-          {formatTypingLine(typingNames)}
-        </div>
-      ) : null}
-
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            // Fire a throttled typing pulse on every keystroke so
-            // co-occupants see "X is typing…" land within ~1s.
-            if (e.target.value.length > 0) publishTyping();
-          }}
-          placeholder="Say something to the room"
-          className="flex-1 border-2 border-paper/20 bg-black/40 px-2 py-1 text-sm text-paper placeholder:text-paper/40 focus:border-paper/50 focus:outline-none"
+      {topics.map((t) => (
+        <TopicRow
+          key={t.id}
+          label={t.title}
+          subline={expiresLabel(t.expiresAt)}
+          active={activeTopicId === t.id}
+          unread={unreadByTopic.get(t.id) ?? 0}
+          onClick={() => switchTopic(t.id)}
         />
-        <button
-          type="submit"
-          disabled={!input.trim()}
-          className="border-2 border-paper/20 bg-paper px-2 py-1 text-xs font-bold uppercase tracking-wider text-ink disabled:opacity-40"
-        >
-          Send
-        </button>
-      </form>
-    </div>
+      ))}
+
+      {showNew ? (
+        <form onSubmit={handleCreate} className="mt-1 flex flex-col gap-1">
+          <input
+            ref={titleRef}
+            type="text"
+            value={title}
+            maxLength={TOPIC_TITLE_MAX}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                cancelCreate();
+              }
+            }}
+            placeholder="Topic name"
+            className="w-full border-2 border-paper/20 bg-black/40 px-1 py-0.5 text-xs text-paper placeholder:text-paper/40 focus:border-paper/50 focus:outline-none"
+          />
+          <div className="text-[10px] italic text-paper/50">
+            Enter to create · Esc to cancel
+          </div>
+          {error ? (
+            <div className="text-[10px] italic text-red-400">{error}</div>
+          ) : null}
+        </form>
+      ) : null}
+    </aside>
+  );
+}
+
+function TopicRow({
+  label,
+  subline,
+  active,
+  unread,
+  onClick,
+}: {
+  label: string;
+  subline?: string;
+  active: boolean;
+  unread: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "flex flex-col items-start gap-0 border-2 px-1.5 py-1 text-left transition " +
+        (active
+          ? "border-paper/50 bg-white/10 text-paper"
+          : "border-transparent text-paper/80 hover:bg-white/5")
+      }
+    >
+      <div className="flex w-full items-center justify-between gap-2">
+        <span className="truncate text-xs font-bold">#{label}</span>
+        {unread > 0 && !active ? (
+          <span className="rounded-sm bg-paper px-1 text-[10px] font-bold text-ink">
+            {unread > 9 ? "9+" : unread}
+          </span>
+        ) : null}
+      </div>
+      {subline ? (
+        <span className="text-[10px] uppercase tracking-wider text-paper/50">
+          {subline}
+        </span>
+      ) : null}
+    </button>
   );
 }
 
@@ -183,3 +386,31 @@ function formatTypingLine(names: string[]): string {
   if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
   return `${names[0]} and ${names.length - 1} others are typing…`;
 }
+
+/** Human-friendly "42m left" / "3m left" — recomputed on the sidebar's
+ *  30s tick. Falls back to "expiring" once < 60s remain and to
+ *  "expired" if the client sees an already-past timestamp before the
+ *  next prune sweeps it out. */
+function expiresLabel(iso: string): string {
+  const remaining = new Date(iso).getTime() - Date.now();
+  if (remaining <= 0) return "expired";
+  const mins = Math.round(remaining / 60_000);
+  if (mins < 1) return "expiring";
+  return `${mins}m left`;
+}
+
+function errorCopy(code: string): string {
+  switch (code) {
+    case "too-many-topics":
+      return `Room is at the ${MAX_TOPICS_PER_BUILDING}-topic cap.`;
+    case "user-topic-limit":
+      return `You already have ${MAX_TOPICS_PER_USER} active topics here.`;
+    case "sign-in-required":
+      return "Sign in to create a topic.";
+    case "empty-title":
+      return "Give the topic a name.";
+    default:
+      return `Couldn't create topic (${code}).`;
+  }
+}
+

@@ -72,6 +72,11 @@ export interface IngestNpcTurnInput {
   sessionId?: string;
   /** Optional metadata bag — keys must be string/number/boolean per CORE. */
   metadata?: Record<string, string | number | boolean>;
+  /** Optional CORE endUserId — the counterparty this episode is about.
+   *  Callers pass the visitor's stable subjectKey for guest turns; leave
+   *  undefined for owner turns (those aren't about anyone else). Stamped
+   *  on the CORE episode so downstream searches can filter by visitor. */
+  endUserId?: string;
 }
 
 /** Build the episode body for one chat turn. Exported so tests can pin
@@ -124,6 +129,7 @@ export async function ingestNpcTurn(opts: IngestNpcTurnInput): Promise<void> {
         type: "CONVERSATION",
         ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
         ...(opts.metadata ? { metadata: opts.metadata } : {}),
+        ...(opts.endUserId ? { endUserId: opts.endUserId } : {}),
       }),
     });
     if (!res.ok) {

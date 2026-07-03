@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#0a0a0a"/>
+  <rect x="30" y="30" width="1140" height="570" fill="none" stroke="#ff3d3d" stroke-width="2"/>
+
+  <text x="600" y="90" text-anchor="middle" font-family="Impact, Haettenschweiler, sans-serif" font-size="30" fill="#ff3d3d" letter-spacing="6">CLAP-BACK BAR</text>
+  <line x1="60" y1="115" x2="1140" y2="115" stroke="#3a3a35" stroke-width="1"/>
+
+  <text x="600" y="180" text-anchor="middle" font-family="Georgia, serif" font-size="20" fill="#8a8a80" letter-spacing="8">WINNER</text>
+  <text x="600" y="285" text-anchor="middle" font-family="Impact, Haettenschweiler, sans-serif" font-size="120" fill="#ff3d3d" letter-spacing="-2">{{winner}}</text>
+
+  <line x1="60" y1="325" x2="1140" y2="325" stroke="#3a3a35" stroke-width="1"/>
+
+  <text x="60" y="370" font-family="Georgia, serif" font-size="16" fill="#8a8a80" letter-spacing="4">YOUR BEST</text>
+  <text x="60" y="410" font-family="Georgia, serif" font-size="22" fill="#f4f4f0" font-style="italic">&#8220;{{best_line}}&#8221;</text>
+
+  <text x="60" y="465" font-family="Georgia, serif" font-size="16" fill="#8a8a80" letter-spacing="4">VINNY&#8217;S BEST</text>
+  <text x="60" y="505" font-family="Georgia, serif" font-size="22" fill="#f4f4f0" font-style="italic">&#8220;{{opponent_line}}&#8221;</text>
+
+  <line x1="60" y1="548" x2="1140" y2="548" stroke="#3a3a35" stroke-width="1"/>
+  <text x="600" y="590" text-anchor="middle" font-family="Georgia, serif" font-size="18" fill="#c4c4b8" font-style="italic">&#8220;{{verdict}}&#8221; &#8212; Vinny</text>
+</svg>

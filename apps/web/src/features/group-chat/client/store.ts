@@ -4,9 +4,25 @@
 // useSyncExternalStore can drive it identically.
 //
 // One overlay at a time — the player is only ever in one house.
+//
+// Topics live alongside a synthetic "#general" thread represented by
+// activeTopicId=null. Messages, typing pulses, and unread counts are
+// all bucketed by topicKey so switching threads is a pure store swap
+// without another network round-trip.
 
-import type { GroupMessageRow } from "../types";
+import type { GroupMessageRow, GroupTopicRow } from "../types";
 import { TYPING_TTL_MS } from "../types";
+
+/** Key used in the per-topic maps — "general" for the null bucket
+ *  so we can drop it in as a Map key without allowing arbitrary
+ *  collisions with cuid topic ids. */
+export const GENERAL_KEY = "general";
+
+export type TopicKey = string;
+
+export function topicKeyOf(topicId: string | null): TopicKey {
+  return topicId ?? GENERAL_KEY;
+}
 
 export type GroupChatRoom = {
   slug: string;
@@ -44,26 +60,42 @@ export type GroupChatState = {
    *  hint — no longer gates the affordance itself (solo players can
    *  open the room too; the activity feed surfaces the start). */
   othersHere: number;
-  messages: GroupMessageRow[];
-  /** Keyed by authorKey so a re-publish from the same author refreshes
-   *  the expiry instead of stacking entries. */
-  typing: Map<string, TypingEntry>;
+  /** Active (unexpired) user-created topics on this room channel,
+   *  newest first. #general is implicit — it doesn't live here. */
+  topics: GroupTopicRow[];
+  /** Which topic the composer is pointed at. null = #general. */
+  activeTopicId: string | null;
+  /** topicKey → messages. Keyed with GENERAL_KEY for #general and
+   *  topic.id otherwise so a single dispatch table covers both. */
+  messagesByTopic: Map<TopicKey, GroupMessageRow[]>;
+  /** Per-topic typing map. Same shape as before but scoped so a
+   *  typer in #general doesn't leak into a topic view. */
+  typingByTopic: Map<TopicKey, Map<string, TypingEntry>>;
+  /** Unread counts for non-active topics. Cleared on switch. */
+  unreadByTopic: Map<TopicKey, number>;
   /** Lifecycle status — drives "Connecting…" / "Disconnected" copy. */
   status: "idle" | "loading" | "ready" | "error";
   /** Empty string when status === "error" but no human-friendly message. */
   errorMessage: string;
 };
 
-let state: GroupChatState = {
-  open: false,
-  room: null,
-  currentHouse: null,
-  othersHere: 0,
-  messages: [],
-  typing: new Map(),
-  status: "idle",
-  errorMessage: "",
-};
+function emptyState(): GroupChatState {
+  return {
+    open: false,
+    room: null,
+    currentHouse: null,
+    othersHere: 0,
+    topics: [],
+    activeTopicId: null,
+    messagesByTopic: new Map(),
+    typingByTopic: new Map(),
+    unreadByTopic: new Map(),
+    status: "idle",
+    errorMessage: "",
+  };
+}
+
+let state: GroupChatState = emptyState();
 
 const listeners = new Set<() => void>();
 const openListeners = new Set<(open: boolean) => void>();
@@ -95,65 +127,128 @@ export const groupChatStore = {
     set({
       open: true,
       room,
-      messages: [],
-      typing: new Map(),
+      topics: [],
+      activeTopicId: null,
+      messagesByTopic: new Map(),
+      typingByTopic: new Map(),
+      unreadByTopic: new Map(),
       status: "loading",
       errorMessage: "",
     });
   },
-  setReady(messages: GroupMessageRow[]) {
-    set({ messages, status: "ready", errorMessage: "" });
+  setReady(messages: GroupMessageRow[], topics: GroupTopicRow[]) {
+    set({
+      messagesByTopic: bucketMessages(messages),
+      topics,
+      status: "ready",
+      errorMessage: "",
+    });
   },
   setError(msg: string) {
     set({ status: "error", errorMessage: msg });
   },
   appendMessage(m: GroupMessageRow) {
+    const key = topicKeyOf(m.topicId);
+    const existing = state.messagesByTopic.get(key) ?? [];
     // Dedupe by id — server-side persist publishes the same row the
     // client just POSTed, and the history endpoint may overlap with
     // an in-flight publish.
-    if (state.messages.some((x) => x.id === m.id)) return;
-    set({ messages: [...state.messages, m] });
+    if (existing.some((x) => x.id === m.id)) return;
+    const next = new Map(state.messagesByTopic);
+    next.set(key, [...existing, m]);
+    // Bump unread for non-active topics only.
+    let unread = state.unreadByTopic;
+    if (state.activeTopicId !== m.topicId) {
+      unread = new Map(unread);
+      unread.set(key, (unread.get(key) ?? 0) + 1);
+    }
+    set({ messagesByTopic: next, unreadByTopic: unread });
   },
-  setTyping(entry: Omit<TypingEntry, "expiresAt">) {
-    const next = new Map(state.typing);
-    next.set(entry.authorKey, {
-      ...entry,
+  addTopic(topic: GroupTopicRow) {
+    // Dedupe — the topic-created wire lands even for the creator.
+    if (state.topics.some((t) => t.id === topic.id)) return;
+    set({ topics: [topic, ...state.topics] });
+  },
+  /** Drop expired topics from the sidebar. Called by a cheap interval
+   *  the surface owns. If the active topic just expired, fall back
+   *  to #general so the composer stays live. */
+  pruneExpiredTopics() {
+    const now = Date.now();
+    const alive: GroupTopicRow[] = [];
+    let changed = false;
+    for (const t of state.topics) {
+      if (new Date(t.expiresAt).getTime() > now) alive.push(t);
+      else changed = true;
+    }
+    if (!changed) return;
+    const activeExpired =
+      state.activeTopicId !== null &&
+      !alive.some((t) => t.id === state.activeTopicId);
+    set({
+      topics: alive,
+      activeTopicId: activeExpired ? null : state.activeTopicId,
+    });
+  },
+  switchTopic(topicId: string | null) {
+    if (state.activeTopicId === topicId) return;
+    // Clear unread for the topic we're switching INTO.
+    const key = topicKeyOf(topicId);
+    const unread = new Map(state.unreadByTopic);
+    if (unread.has(key)) unread.delete(key);
+    set({ activeTopicId: topicId, unreadByTopic: unread });
+  },
+  setTyping(
+    entry: Omit<TypingEntry, "expiresAt"> & { topicId: string | null },
+  ) {
+    const key = topicKeyOf(entry.topicId);
+    const topicMap = new Map(state.typingByTopic.get(key) ?? []);
+    topicMap.set(entry.authorKey, {
+      authorKey: entry.authorKey,
+      authorName: entry.authorName,
+      isNpc: entry.isNpc,
       expiresAt: performance.now() + TYPING_TTL_MS,
     });
-    set({ typing: next });
+    const next = new Map(state.typingByTopic);
+    next.set(key, topicMap);
+    set({ typingByTopic: next });
   },
   /** Drop typing entries whose `expiresAt` has passed. Called from a
    *  cheap interval the surface owns. */
   pruneTyping() {
     const now = performance.now();
-    let changed = false;
-    const next = new Map(state.typing);
-    for (const [k, v] of next) {
-      if (v.expiresAt <= now) {
-        next.delete(k);
-        changed = true;
+    let anyChanged = false;
+    const next = new Map(state.typingByTopic);
+    for (const [key, m] of next) {
+      let changed = false;
+      const inner = new Map(m);
+      for (const [k, v] of inner) {
+        if (v.expiresAt <= now) {
+          inner.delete(k);
+          changed = true;
+        }
+      }
+      if (changed) {
+        next.set(key, inner);
+        anyChanged = true;
       }
     }
-    if (changed) set({ typing: next });
+    if (anyChanged) set({ typingByTopic: next });
   },
   /** Drop a specific typing entry — used when their message lands so
    *  the indicator clears immediately, not after a 3.5s decay. */
-  clearTyping(authorKey: string) {
-    if (!state.typing.has(authorKey)) return;
-    const next = new Map(state.typing);
-    next.delete(authorKey);
-    set({ typing: next });
+  clearTyping(topicId: string | null, authorKey: string) {
+    const key = topicKeyOf(topicId);
+    const inner = state.typingByTopic.get(key);
+    if (!inner || !inner.has(authorKey)) return;
+    const next = new Map(state.typingByTopic);
+    const clone = new Map(inner);
+    clone.delete(authorKey);
+    next.set(key, clone);
+    set({ typingByTopic: next });
   },
   closeRoom() {
     if (!state.open && state.room === null) return;
-    set({
-      open: false,
-      room: null,
-      messages: [],
-      typing: new Map(),
-      status: "idle",
-      errorMessage: "",
-    });
+    set(emptyState());
   },
   setCurrentHouse(house: GroupChatRoom | null) {
     if (state.currentHouse === house) return;
@@ -168,6 +263,19 @@ export const groupChatStore = {
     set({ othersHere: n });
   },
 };
+
+function bucketMessages(
+  messages: GroupMessageRow[],
+): Map<TopicKey, GroupMessageRow[]> {
+  const out = new Map<TopicKey, GroupMessageRow[]>();
+  for (const m of messages) {
+    const key = topicKeyOf(m.topicId);
+    const list = out.get(key) ?? [];
+    list.push(m);
+    out.set(key, list);
+  }
+  return out;
+}
 
 // Public, side-effect-free predicate exported through the feature
 // barrel. Interior scene calls this to gate NPC interactables — when
@@ -185,4 +293,19 @@ export function subscribeGroupChatOpen(
   return () => {
     openListeners.delete(fn);
   };
+}
+
+/** Selector: messages for the currently active topic. Empty array
+ *  when the store is not ready or the bucket has no messages yet. */
+export function selectActiveMessages(
+  s: GroupChatState = state,
+): GroupMessageRow[] {
+  return s.messagesByTopic.get(topicKeyOf(s.activeTopicId)) ?? [];
+}
+
+/** Selector: typing entries for the currently active topic. */
+export function selectActiveTyping(
+  s: GroupChatState = state,
+): Map<string, TypingEntry> {
+  return s.typingByTopic.get(topicKeyOf(s.activeTopicId)) ?? new Map();
 }

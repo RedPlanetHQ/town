@@ -1,0 +1,52 @@
+{
+  "buildings": [
+    {
+      "id": "welcome",
+      "plotKey": "home",
+      "variantId": "home.cottage",
+      "label": "The Welcome Room"
+    },
+    {
+      "id": "loft",
+      "plotKey": "home",
+      "variantId": "home.condo",
+      "label": "The Founder's Loft"
+    },
+    {
+      "id": "warroom",
+      "plotKey": "office",
+      "variantId": "office.two-by-two-table",
+      "label": "The War Room"
+    },
+    {
+      "id": "gtm",
+      "plotKey": "store",
+      "variantId": "store.the-saturday-market",
+      "label": "The GTM Booth"
+    },
+    {
+      "id": "brand",
+      "plotKey": "studio",
+      "variantId": "studio.atelier",
+      "label": "The Brand Studio"
+    },
+    {
+      "id": "casestudy",
+      "plotKey": "library",
+      "variantId": "library.the-archive",
+      "label": "The Case Study Room"
+    },
+    {
+      "id": "engineering",
+      "plotKey": "workshop",
+      "variantId": "workshop.the-server-closet",
+      "label": "The Engineering Bay"
+    },
+    {
+      "id": "coldplunge",
+      "plotKey": "gym",
+      "variantId": "gym.the-iron-room",
+      "label": "The Cold-Plunge"
+    }
+  ]
+}

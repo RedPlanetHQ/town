@@ -223,12 +223,39 @@ export function buildNpcTools(
   const tools: Record<string, Tool> = {};
 
   // ── memory_search ─────────────────────────────────────────────────────
+  //
+  // Runs up to TWO parallel searches against the resident's CORE graph
+  // and returns them as tagged blocks so the model sees both scopes:
+  //
+  //   <town_memory>     — the full graph (everything the resident knows)
+  //   <visitor_memory>  — only episodes CORE has tagged with this
+  //                       visitor's endUserId (past conversations with
+  //                       *this specific* guest). Omitted when the
+  //                       caller IS the owner or when we don't have a
+  //                       visitor identity to filter by.
+  //
+  // Two calls in parallel, not two separate tools — the model doesn't
+  // have to choose which to hit, and small talk still gets a single
+  // decision to make (call or don't).
   if (permissions.core?.memory_search) {
+    // Only issue the visitor call when we actually have a
+    // non-owner counterparty. townCtx.subjectKey ("user:<id>" /
+    // "guest:<id>") is exactly the value we stamp on episodes as
+    // CORE endUserId at ingest, so passing it here is a direct match.
+    const visitorEndUserId =
+      townCtx && !townCtx.isOwner ? townCtx.subjectKey : null;
+
     tools.memory_search = tool({
       description:
         "Search the town RESIDENT's CORE memory graph for facts relevant to a query. " +
         "Use when the conversation needs grounded context about the resident's life, " +
-        "work, projects, or thinking. Don't call for small talk.",
+        "work, projects, or thinking. Don't call for small talk.\n\n" +
+        "Returns two tagged blocks when a visitor is present:\n" +
+        "  <town_memory>    everything the resident's graph contains\n" +
+        "  <visitor_memory> the subset of episodes about THIS visitor\n" +
+        "                   specifically (prior conversations, tags,\n" +
+        "                   things the visitor told you before).\n" +
+        "When the caller IS the resident, only <town_memory> is returned.",
       inputSchema: z.object({
         query: z
           .string()
@@ -239,14 +266,46 @@ export function buildNpcTools(
           .min(1)
           .max(20)
           .default(5)
-          .describe("Max number of episodes/facts to return."),
+          .describe("Max number of episodes/facts to return per scope."),
       }),
       async execute({ query, limit }) {
         if ("error" in ctxOrErr) return { error: ctxOrErr.error };
-        return await coreFetch(ctxOrErr, "/api/v1/search", {
+        // Fire both requests in parallel. The town query is unbounded;
+        // the visitor query narrows by endUserIds. If no visitor
+        // identity is available, skip the second call entirely.
+        const townPromise = coreFetch(ctxOrErr, "/api/v1/search", {
           method: "POST",
           body: JSON.stringify({ query, limit }),
         });
+        const visitorPromise = visitorEndUserId
+          ? coreFetch(ctxOrErr, "/api/v1/search", {
+              method: "POST",
+              body: JSON.stringify({
+                query,
+                limit,
+                endUserIds: [visitorEndUserId],
+              }),
+            })
+          : Promise.resolve(null);
+
+        const [town, visitor] = await Promise.all([
+          townPromise,
+          visitorPromise,
+        ]);
+
+        // Serialize each scope's JSON inside XML tags. The model reads
+        // the whole return as text, so tags make the two scopes
+        // unambiguous when it composes a reply.
+        const blocks: string[] = [];
+        if (visitor !== null) {
+          blocks.push(
+            `<visitor_memory>\n${JSON.stringify(visitor)}\n</visitor_memory>`,
+          );
+        }
+        blocks.push(
+          `<town_memory>\n${JSON.stringify(town)}\n</town_memory>`,
+        );
+        return blocks.join("\n");
       },
     });
   }

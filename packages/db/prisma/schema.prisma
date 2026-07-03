@@ -375,6 +375,11 @@ model PlotSuggestion {
 //     (same shape Conversation already uses), isNpc = false.
 //   • NPC posts   → authorKey = "npc:<npcId>", isNpc = true.
 //
+// `topicId` is null for the always-on "#general" room and points at
+// a GroupTopic when the message was posted inside a user-created
+// topic. History rows for expired topics are filtered out at read
+// time (types.ts HISTORY_WINDOW_MS + active-topic join).
+//
 // Retention: the history endpoint only ever returns rows from the
 // last hour (HISTORY_WINDOW_MS in types.ts). Older rows are
 // invisible to readers; a periodic sweeper can purge them later if
@@ -382,6 +387,7 @@ model PlotSuggestion {
 model GroupMessage {
   id         String   @id @default(cuid())
   channelId  String
+  topicId    String?
   authorKey  String
   authorName String
   isNpc      Boolean  @default(false)
@@ -389,6 +395,29 @@ model GroupMessage {
   createdAt  DateTime @default(now())
 
   @@index([channelId, createdAt])
+  @@index([channelId, topicId, createdAt])
+}
+
+// User-created ephemeral topic inside a building's group chat. Sits
+// alongside the always-on "#general" (represented by topicId=null on
+// GroupMessage). Every room caps at MAX_TOPICS_PER_BUILDING active
+// topics and each user at MAX_TOPICS_PER_USER active topics per room
+// — enforced in the create endpoint. `expiresAt` is a hard clock set
+// to `createdAt + TOPIC_TTL_MS`; the cap counts unexpired rows only.
+model GroupTopic {
+  id            String   @id @default(cuid())
+  channelId     String
+  townSlug      String
+  buildingId    String
+  title         String
+  createdByKey  String
+  createdByName String
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  closedAt      DateTime?
+
+  @@index([channelId, expiresAt])
+  @@index([channelId, createdByKey, expiresAt])
 }
 
 // Tag awarded to a visitor by an NPC. Town-scoped (so the same browser can

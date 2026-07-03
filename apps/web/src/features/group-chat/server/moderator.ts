@@ -16,9 +16,9 @@
 //     per call. Input is bounded by HISTORY_TURNS_MAX of the recent
 //     messages we already had to fetch for stage 2 anyway.
 //
-// State is in-process: just one Map keyed by channelId tracking the
-// last NPC-speak timestamp. Same single-container caveat as before;
-// move to Redis if the server ever scales horizontally.
+// State is in-process: just one Map keyed by (channelId, topicId)
+// tracking the last NPC-speak timestamp. Same single-container caveat
+// as before; move to Redis if the server ever scales horizontally.
 
 import { generateObject } from "ai";
 import { z } from "zod";
@@ -27,9 +27,20 @@ import { getChatModel } from "@/lib/chat-model";
 
 const ROOM_COOLDOWN_MS = 8_000;
 
-// channelId → last NPC speak timestamp (ms). Cheap rate limit so a
-// noisy room can't trigger an NPC reply on every human turn.
+// `${channelId}::${topicId ?? "general"}` → last NPC speak timestamp
+// (ms). Scoped per-topic so a chatty thread doesn't gag a quiet one
+// inside the same building.
 const roomLastSpeak = new Map<string, number>();
+
+/** Compose the cooldown-map key from a channel + topic. Callers
+ *  (route.ts / npc-reply.ts) pass the resulting key to pickResponder
+ *  and markSpoke so the cooldown scope stays consistent. */
+export function topicKey(
+  channelId: string,
+  topicId: string | null,
+): string {
+  return `${channelId}::${topicId ?? "general"}`;
+}
 
 export interface NpcCandidate {
   id: string;
@@ -174,7 +185,7 @@ export interface PickOptions {
 }
 
 export async function pickResponder(
-  channelId: string,
+  cooldownKey: string,
   history: HistoryRow[],
   npcs: NpcCandidate[],
   options: PickOptions = {},
@@ -184,7 +195,7 @@ export async function pickResponder(
 
   if (!options.skipRoomCooldown) {
     const now = Date.now();
-    const lastRoom = roomLastSpeak.get(channelId) ?? 0;
+    const lastRoom = roomLastSpeak.get(cooldownKey) ?? 0;
     if (now - lastRoom < ROOM_COOLDOWN_MS) return null;
   }
 
@@ -254,7 +265,8 @@ export async function pickResponder(
 /** Stage 2 calls this immediately after the NPC's reply lands so
  *  future moderator calls see the fresh room cooldown floor. Stamps
  *  on pick (not after stream) keeps a failed stream from refiring
- *  the picker on the very next message. */
-export function markSpoke(channelId: string, _npcId: string): void {
-  roomLastSpeak.set(channelId, Date.now());
+ *  the picker on the very next message. `cooldownKey` is the same
+ *  composed key pickResponder saw — pass `topicKey(channelId, topicId)`. */
+export function markSpoke(cooldownKey: string, _npcId: string): void {
+  roomLastSpeak.set(cooldownKey, Date.now());
 }

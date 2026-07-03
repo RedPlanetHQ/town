@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#0a0a0a"/>
+  <rect x="30" y="30" width="1140" height="570" fill="none" stroke="#ff3d3d" stroke-width="2"/>
+
+  <text x="60" y="88" font-family="Impact, Haettenschweiler, sans-serif" font-size="32" fill="#ff3d3d" letter-spacing="6">ROAST TOWN</text>
+  <text x="1140" y="88" text-anchor="end" font-family="Georgia, serif" font-size="20" fill="#8a8a80" font-style="italic">{{lens}}</text>
+  <line x1="60" y1="110" x2="1140" y2="110" stroke="#3a3a35" stroke-width="1"/>
+
+  <text x="600" y="180" text-anchor="middle" font-family="Georgia, serif" font-size="20" fill="#8a8a80" letter-spacing="8">VERDICT</text>
+  <text x="600" y="360" text-anchor="middle" font-family="Impact, Haettenschweiler, sans-serif" font-size="220" fill="#ff3d3d" letter-spacing="-4">{{score}}<tspan font-size="100" fill="#5a5a55">/10</tspan></text>
+
+  <text x="600" y="450" text-anchor="middle" font-family="Georgia, serif" font-size="26" fill="#f4f4f0" font-style="italic">&#8220;{{verdict}}&#8221;</text>
+  <text x="600" y="500" text-anchor="middle" font-family="Georgia, serif" font-size="22" fill="#c4c4b8">&#8212; {{panelist}}</text>
+
+  <line x1="60" y1="548" x2="1140" y2="548" stroke="#3a3a35" stroke-width="1"/>
+  <text x="60" y="585" font-family="Georgia, serif" font-size="14" fill="#8a8a80" letter-spacing="4">SUBJECT</text>
+  <text x="1140" y="585" text-anchor="end" font-family="Georgia, serif" font-size="18" fill="#c4c4b8" font-style="italic">{{target}}</text>
+</svg>

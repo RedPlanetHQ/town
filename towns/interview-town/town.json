@@ -1,0 +1,46 @@
+{
+  "buildings": [
+    {
+      "id": "greenroom",
+      "plotKey": "home",
+      "variantId": "home.condo",
+      "label": "The Green Room"
+    },
+    {
+      "id": "radiobooth",
+      "plotKey": "studio",
+      "variantId": "studio.the-booth",
+      "label": "The Radio Booth"
+    },
+    {
+      "id": "confessional",
+      "plotKey": "library",
+      "variantId": "library.the-archive",
+      "label": "The Confessional"
+    },
+    {
+      "id": "systems",
+      "plotKey": "office",
+      "variantId": "office.pitch-wall",
+      "label": "The Systems Room"
+    },
+    {
+      "id": "codingbay",
+      "plotKey": "workshop",
+      "variantId": "workshop.the-server-closet",
+      "label": "The Coding Bay"
+    },
+    {
+      "id": "caseroom",
+      "plotKey": "store",
+      "variantId": "store.the-mall",
+      "label": "The Case Room"
+    },
+    {
+      "id": "portico",
+      "plotKey": "gym",
+      "variantId": "gym.the-long-run",
+      "label": "The Portico"
+    }
+  ]
+}
