@@ -1,0 +1,28 @@
+{
+  "id": "product",
+  "label": "The Product Room",
+  "category": "WORK",
+  "interior": {
+    "sprite": "interiors/office/empty-office-room.png",
+    "widthTiles": 10,
+    "heightTiles": 7,
+    "walkable": { "tx": 0, "ty": 3, "w": 10, "h": 4 },
+    "spawn": { "tx": 5, "ty": 6 },
+    "exit": { "tx": 5, "ty": 6 },
+    "props": [
+      { "sprite": "office/corkboard", "tx": 2, "ty": 2 },
+      { "sprite": "office/tall_cabinet", "tx": 7, "ty": 2 }
+    ],
+    "blocked": []
+  },
+  "variants": [
+    {
+      "id": "product.room",
+      "exteriorSprite": "exteriors/office/condo-9.png",
+      "npcPositions": [
+        { "id": "pm",       "tx": 3, "ty": 4, "label": "Product Manager" },
+        { "id": "designer", "tx": 7, "ty": 4, "label": "Product / UX Designer" }
+      ]
+    }
+  ]
+}

@@ -14,6 +14,7 @@
       "groupChatEnabled": true
     },
     { "id": "sales", "plotKey": "custom:sales", "variantId": "sales.floor", "label": "The Sales Floor", "groupChatEnabled": true },
-    { "id": "marketing", "plotKey": "custom:marketing", "variantId": "marketing.lab", "label": "The Growth Lab", "groupChatEnabled": true }
+    { "id": "marketing", "plotKey": "custom:marketing", "variantId": "marketing.lab", "label": "The Growth Lab", "groupChatEnabled": true },
+    { "id": "product", "plotKey": "custom:product", "variantId": "product.room", "label": "The Product Room", "groupChatEnabled": true }
   ]
 }
