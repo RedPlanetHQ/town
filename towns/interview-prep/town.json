@@ -1,0 +1,10 @@
+{
+  "buildings": [
+    {
+      "id": "home",
+      "plotKey": "home",
+      "variantId": "home.cottage",
+      "label": "Interview Prep Town"
+    }
+  ]
+}
