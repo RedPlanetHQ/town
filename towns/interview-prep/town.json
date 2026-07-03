@@ -13,6 +13,7 @@
       "label": "The Dev Den",
       "groupChatEnabled": true
     },
-    { "id": "sales", "plotKey": "custom:sales", "variantId": "sales.floor", "label": "The Sales Floor", "groupChatEnabled": true }
+    { "id": "sales", "plotKey": "custom:sales", "variantId": "sales.floor", "label": "The Sales Floor", "groupChatEnabled": true },
+    { "id": "marketing", "plotKey": "custom:marketing", "variantId": "marketing.lab", "label": "The Growth Lab", "groupChatEnabled": true }
   ]
 }

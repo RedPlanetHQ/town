@@ -1,0 +1,30 @@
+{
+  "id": "marketing",
+  "label": "The Growth Lab",
+  "category": "CREATE",
+  "interior": {
+    "sprite": "interiors/studio/empty-studio-room.png",
+    "widthTiles": 10,
+    "heightTiles": 7,
+    "walkable": { "tx": 0, "ty": 3, "w": 10, "h": 4 },
+    "spawn": { "tx": 5, "ty": 6 },
+    "exit": { "tx": 5, "ty": 6 },
+    "props": [
+      { "sprite": "office/corkboard", "tx": 1, "ty": 2 },
+      { "sprite": "office/plant_tall", "tx": 5, "ty": 2 },
+      { "sprite": "office/plant_snake", "tx": 9, "ty": 2 }
+    ],
+    "blocked": []
+  },
+  "variants": [
+    {
+      "id": "marketing.lab",
+      "exteriorSprite": "exteriors/office/condo-8.png",
+      "npcPositions": [
+        { "id": "growth", "tx": 2, "ty": 4, "label": "Growth Marketing" },
+        { "id": "pmm",    "tx": 5, "ty": 4, "label": "Product Marketing" },
+        { "id": "brand",  "tx": 8, "ty": 4, "label": "Content / Brand" }
+      ]
+    }
+  ]
+}
