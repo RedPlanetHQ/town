@@ -2,12 +2,13 @@
 // and returns a fully-formed Plot ready to be persisted or rendered.
 
 import type { Catalog, Plot as CatalogPlot, Variant } from "@town/catalog";
+import { getSpriteDims } from "@town/catalog";
 import type { CustomPlot, Manifest, Plot, PlotBuilding, PlotPath } from "@town/plot";
 import { generateLayout, type BuildingRect } from "./layout";
 import { roadTiles } from "./roads";
 import { scatterDecor } from "./decor";
 import { placePonds } from "./ponds";
-import { WORLD, baseKey } from "./world";
+import { PLOT_PRIORITY, WORLD, baseKey } from "./world";
 import type { ClearingShape } from "./clearings";
 
 export interface GenerateInput {
@@ -26,6 +27,13 @@ export interface GenerateInput {
    *  is still driven by PLOT_PRIORITY; only future `addBuilding` calls
    *  consult these. */
   customPlots?: CustomPlot[];
+}
+
+/** First `activeCount` plot keys from PLOT_PRIORITY. Mirrors the slice the
+ *  layout walks; hoisted here so `generatePlot` can pre-resolve sprite
+ *  dims for each active plot before running the layout. */
+function activePlotKeys(activeCount: number): string[] {
+  return PLOT_PRIORITY.slice(0, activeCount);
 }
 
 /** Resolve `plotKey` → catalog Plot + chosen Variant. Returns null if the
@@ -50,17 +58,39 @@ export function generatePlot(input: GenerateInput): Plot {
   const activeCount = input.activeCount ?? 3;
   const id = input.id ?? `${seed || "default"}-plot`;
 
-  // 1. Layout — cells → tile rects.
-  const layout = generateLayout(seed, activeCount);
-
-  // 2. Resolve catalog entries + flatten to PlotBuilding[]. Look up the
-  //    actual sprite tile dimensions from the manifest so tall extras
-  //    (stage / station / etc.) carve a tall clearing instead of a short
-  //    round one — matches what the playground does in pgRenderMap.
+  // 1. Pre-resolve each active plotKey → variant → sprite tile dims so the
+  //    layout algorithm knows the actual footprint of every building it
+  //    needs to place. Catalog variants pull dims from the baked
+  //    sprite-dims map; buildings not in the catalog fall back to the
+  //    extras manifest (workshop / stage / etc. that render from
+  //    /sprites/extras/buildings). This is the fix for tall-sprite
+  //    collisions — without dims the layout treated every building as
+  //    10×7 and packed them close enough to overlap.
   const manifestBuildingById = new Map<string, { tileW: number; tileH: number }>();
   for (const mb of input.manifest.buildings ?? []) {
     manifestBuildingById.set(mb.id, { tileW: mb.tileW, tileH: mb.tileH });
   }
+  function dimsFor(
+    plotKey: string,
+    exteriorSprite: string,
+  ): { tileW: number; tileH: number } | undefined {
+    const fromCatalog = getSpriteDims(exteriorSprite);
+    if (fromCatalog) return fromCatalog;
+    return manifestBuildingById.get(baseKey(plotKey));
+  }
+
+  // 2. Layout — cells → tile rects. Feeds in per-plotKey sprite dims so
+  //    collision checks account for tall / wide sprites.
+  const layoutDims: Record<string, { tileW: number; tileH: number }> = {};
+  for (const plotKey of activePlotKeys(activeCount)) {
+    const resolved = resolveVariant(input.catalog, plotKey, input.variantOverrides?.[plotKey]);
+    if (!resolved) continue;
+    const dims = dimsFor(plotKey, resolved.variant.exteriorSprite ?? "");
+    if (dims) layoutDims[plotKey] = dims;
+  }
+  const layout = generateLayout(seed, activeCount, layoutDims);
+
+  // 3. Flatten each placed cell into a PlotBuilding + ClearingShape.
   const buildings: PlotBuilding[] = [];
   const clearingShapes: ClearingShape[] = [];
   for (const plotKey of Object.keys(layout)) {
@@ -69,7 +99,7 @@ export function generatePlot(input: GenerateInput): Plot {
     if (!resolved) continue;
     const { catalogPlot, variant } = resolved;
     const exteriorSprite = variant.exteriorSprite ?? "";
-    const spriteDims = manifestBuildingById.get(baseKey(plotKey));
+    const spriteDims = dimsFor(plotKey, exteriorSprite);
     buildings.push({
       id: plotKey,
       plotKey,

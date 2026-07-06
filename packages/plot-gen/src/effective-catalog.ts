@@ -9,6 +9,7 @@
 // `@town/catalog`'s `getPlot` after stripping the instance suffix.
 
 import type { Catalog, Category } from "@town/catalog";
+import { getSpriteDims } from "@town/catalog";
 import type { CustomPlot } from "@town/plot";
 import { customPlotId } from "@town/plot";
 import { baseKey } from "./world";
@@ -94,11 +95,20 @@ export function resolveEffectivePlot(
   return {
     id: cp.id,
     category: cp.category,
-    variants: cp.variants.map((v) => ({
-      id: v.id,
-      exteriorSprite: v.exteriorSprite,
-      npcSlots: projectSlots(v.npcPositions, v.npcPosition),
-    })),
+    variants: cp.variants.map((v) => {
+      // Fill in tile dimensions from the baked catalog sprite-dims map so
+      // downstream placement (findFreeRect / effectiveRect) sees the real
+      // footprint instead of the 10×7 fallback. Custom plots ship dims
+      // on their variants directly; catalog variants don't, so we look
+      // them up here.
+      const dims = getSpriteDims(v.exteriorSprite);
+      return {
+        id: v.id,
+        exteriorSprite: v.exteriorSprite,
+        ...(dims ? { spriteW: dims.tileW, spriteH: dims.tileH } : {}),
+        npcSlots: projectSlots(v.npcPositions, v.npcPosition),
+      };
+    }),
   };
 }
 

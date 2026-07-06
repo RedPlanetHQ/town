@@ -1,0 +1,194 @@
+{
+  "exteriors/cafe/market-small-2.png": {
+    "tileW": 5,
+    "tileH": 8
+  },
+  "exteriors/cafe/market-small-5.png": {
+    "tileW": 5,
+    "tileH": 8
+  },
+  "exteriors/cafe/market-small-7.png": {
+    "tileW": 5,
+    "tileH": 8
+  },
+  "exteriors/home/country-house-no-banisters.png": {
+    "tileW": 18,
+    "tileH": 16
+  },
+  "exteriors/home/country-house.png": {
+    "tileW": 18,
+    "tileH": 16
+  },
+  "exteriors/home/lighthouse-base.png": {
+    "tileW": 7,
+    "tileH": 15
+  },
+  "exteriors/home/lighthouse-example.png": {
+    "tileW": 7,
+    "tileH": 16
+  },
+  "exteriors/home/modern-house.png": {
+    "tileW": 23,
+    "tileH": 14
+  },
+  "exteriors/home/post-apocalyptic-house-1.png": {
+    "tileW": 13,
+    "tileH": 10
+  },
+  "exteriors/home/post-apocalyptic-house-2.png": {
+    "tileW": 13,
+    "tileH": 10
+  },
+  "exteriors/home/terraced-house-1.png": {
+    "tileW": 12,
+    "tileH": 15
+  },
+  "exteriors/home/terraced-house-4.png": {
+    "tileW": 12,
+    "tileH": 15
+  },
+  "exteriors/home/terraced-house-5.png": {
+    "tileW": 12,
+    "tileH": 15
+  },
+  "exteriors/home/tree-house-1.png": {
+    "tileW": 9,
+    "tileH": 11
+  },
+  "exteriors/home/victorian-house-1.png": {
+    "tileW": 16,
+    "tileH": 25
+  },
+  "exteriors/home/victorian-house-2.png": {
+    "tileW": 6,
+    "tileH": 25
+  },
+  "exteriors/home/victorian-house-3.png": {
+    "tileW": 9,
+    "tileH": 25
+  },
+  "exteriors/home/victorian-house-4.png": {
+    "tileW": 18,
+    "tileH": 22
+  },
+  "exteriors/home/victorian-house-5.png": {
+    "tileW": 18,
+    "tileH": 16
+  },
+  "exteriors/home/victorian-house-6.png": {
+    "tileW": 12,
+    "tileH": 22
+  },
+  "exteriors/home/victorian-house-7.png": {
+    "tileW": 6,
+    "tileH": 16
+  },
+  "exteriors/home/villa-1.png": {
+    "tileW": 9,
+    "tileH": 13
+  },
+  "exteriors/home/villa-2.png": {
+    "tileW": 9,
+    "tileH": 13
+  },
+  "exteriors/home/villa-3.png": {
+    "tileW": 9,
+    "tileH": 13
+  },
+  "exteriors/home/villa-4.png": {
+    "tileW": 9,
+    "tileH": 13
+  },
+  "exteriors/home/villa-5.png": {
+    "tileW": 9,
+    "tileH": 13
+  },
+  "exteriors/library/clock-tower-2.png": {
+    "tileW": 8,
+    "tileH": 15
+  },
+  "exteriors/library/generic-building-condo-6.png": {
+    "tileW": 13,
+    "tileH": 16
+  },
+  "exteriors/library/school-1.png": {
+    "tileW": 24,
+    "tileH": 23
+  },
+  "exteriors/office/condo-4-38.png": {
+    "tileW": 16,
+    "tileH": 18
+  },
+  "exteriors/office/condo-4-39.png": {
+    "tileW": 16,
+    "tileH": 18
+  },
+  "exteriors/office/condo-6.png": {
+    "tileW": 13,
+    "tileH": 16
+  },
+  "exteriors/office/condo-8.png": {
+    "tileW": 5,
+    "tileH": 16
+  },
+  "exteriors/office/condo-9.png": {
+    "tileW": 6,
+    "tileH": 12
+  },
+  "exteriors/office/condo-example.png": {
+    "tileW": 6,
+    "tileH": 17
+  },
+  "exteriors/office/hospital-1.png": {
+    "tileW": 27,
+    "tileH": 21
+  },
+  "exteriors/office/office-example-1.png": {
+    "tileW": 12,
+    "tileH": 19
+  },
+  "exteriors/office/office-example-2.png": {
+    "tileW": 19,
+    "tileH": 18
+  },
+  "exteriors/store/mall-1.png": {
+    "tileW": 18,
+    "tileH": 12
+  },
+  "exteriors/store/market-big-2.png": {
+    "tileW": 7,
+    "tileH": 12
+  },
+  "exteriors/store/market-big-4.png": {
+    "tileW": 7,
+    "tileH": 12
+  },
+  "exteriors/store/market-small-1.png": {
+    "tileW": 5,
+    "tileH": 8
+  },
+  "exteriors/store/market-small-11.png": {
+    "tileW": 5,
+    "tileH": 8
+  },
+  "exteriors/store/market-small-3.png": {
+    "tileW": 5,
+    "tileH": 8
+  },
+  "exteriors/store/market-small-6.png": {
+    "tileW": 5,
+    "tileH": 8
+  },
+  "exteriors/store/market-small-9.png": {
+    "tileW": 5,
+    "tileH": 8
+  },
+  "exteriors/studio/condo-8.png": {
+    "tileW": 5,
+    "tileH": 16
+  },
+  "exteriors/studio/condo-9.png": {
+    "tileW": 6,
+    "tileH": 12
+  }
+}

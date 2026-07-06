@@ -10,13 +10,17 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./catalog.json": "./src/catalog.json"
+    "./catalog.json": "./src/catalog.json",
+    "./sprite-dims.json": "./src/sprite-dims.json"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "build-sprite-dims": "tsx scripts/build-sprite-dims.ts"
   },
   "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4.0.0",
     "typescript": "^5"
   }
 }
