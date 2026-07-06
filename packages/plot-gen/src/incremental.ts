@@ -161,6 +161,10 @@ function findFreeRect(
     // Overlap test against EFFECTIVE sprite extents — footprint plus
     // any spriteW/spriteH overhang. Without this, tall sprites stack on
     // top of their neighbours' roofs even when the footprints clear.
+    // Pad = 3 so the visible edge of one building sits at least 3 tiles
+    // from the visible edge of the next — enough for the player to
+    // walk between them instead of hitting collision on adjacent
+    // sprites.
     const candidateEff = effectiveRect({
       ...rect,
       ...(manifestDims
@@ -169,7 +173,7 @@ function findFreeRect(
     });
     let collides = false;
     for (const b of plot.buildings) {
-      if (rectsOverlap(candidateEff, effectiveRect(b), 1)) {
+      if (rectsOverlap(candidateEff, effectiveRect(b), 3)) {
         collides = true;
         break;
       }

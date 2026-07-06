@@ -3,7 +3,11 @@
 // the playground previews / exports as JSON. Four passes in order:
 //
 //   1. Forest trees (distance-falloff, jitter)
-//   2. Forest floor scatter (stumps 1/50, mushrooms 1/30, rocks 1/80)
+//   2. Forest floor scatter (stumps 1/120, mushrooms 1/50, rocks 1/100)
+//      — stumps block movement (see overworld-plot.ts's `blocked` pass),
+//      so we keep them relatively sparse; the bigger CELL_H means the
+//      forest floor is now vast enough that the old 1/50 density made
+//      the player hit a stump every few tiles when leaving a path.
 //   3. Clearing-fringe rocks (5 per plot, at 88-98% of clearing radius)
 //   4. Per-clearing bushes + flowers (3 each, radial rejection sampling)
 //
@@ -182,7 +186,10 @@ export function scatterDecor(input: DecorInput): PlotDecor[] {
       if (inAnyClearing(buildings, x + 0.5, y + 1.5)) continue;
       if (stumps.length) {
         const sh = hash32("stump::" + seed + "::" + x + "::" + y);
-        if (sh % 50 === 0) {
+        // Stumps are the only walkable-forest decor that blocks the
+        // player. Kept sparser than mushrooms / rocks so wandering
+        // between buildings doesn't feel like an obstacle course.
+        if (sh % 120 === 0) {
           const stump = stumps[sh % stumps.length]!;
           if (!stumpFootprintTouchesClearing(x, y, stump.tileW, stump.tileH)) {
             out.push({ tx: x, ty: y, group: "stumps", spriteId: stump.id });
@@ -191,14 +198,14 @@ export function scatterDecor(input: DecorInput): PlotDecor[] {
       }
       if (mushrooms.length) {
         const mh = hash32("mush::" + seed + "::" + x + "::" + y);
-        if (mh % 30 === 0) {
+        if (mh % 50 === 0) {
           const mush = mushrooms[mh % mushrooms.length]!;
           out.push({ tx: x, ty: y, group: "mushrooms", spriteId: mush.id });
         }
       }
       if (scatterRocks.length) {
         const rh = hash32("frock::" + seed + "::" + x + "::" + y);
-        if (rh % 80 === 0) {
+        if (rh % 100 === 0) {
           const rk = scatterRocks[rh % scatterRocks.length]!;
           out.push({ tx: x, ty: y, group: "rocks", spriteId: rk.id });
         }

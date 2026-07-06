@@ -24,7 +24,6 @@ import { Hud } from "./Hud";
 import { InteractionPrompt } from "./InteractionPrompt";
 import { Panel } from "./Panel";
 import { Explorer } from "./Explorer";
-import { Tasks } from "./Tasks";
 import { Dialogue } from "./Dialogue";
 import { Chat } from "./Chat";
 import { Invite } from "./Invite";
@@ -100,7 +99,6 @@ export function TownGame(props: TownGameProps = {}) {
     prompt,
     panel,
     explorer,
-    tasks,
     dialogue,
     chat,
     invite,
@@ -223,7 +221,6 @@ export function TownGame(props: TownGameProps = {}) {
     !!invite ||
     !!shareImage ||
     !!dm ||
-    !!tasks ||
     !!explorer ||
     suggestions.open;
   useEffect(() => {
@@ -311,7 +308,6 @@ export function TownGame(props: TownGameProps = {}) {
           gating these on viewerMode. */}
       {panel ? <Panel panel={panel} /> : null}
       {explorer ? <Explorer /> : null}
-      {tasks ? <Tasks /> : null}
       {dialogue ? <Dialogue dialogue={dialogue} /> : null}
       {chat ? <Chat chat={chat} /> : null}
       {!isVisitor && invite && ownerSlug ? (

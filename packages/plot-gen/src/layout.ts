@@ -147,6 +147,10 @@ export function generateLayout(
     if (candidates.length === 0) break;
     let picked: (BuildingRect & { spriteW?: number; spriteH?: number }) | null =
       null;
+    // Pad = 3 tiles between visible sprite edges so the player has room
+    // to walk between neighbours instead of squeezing through 1-tile
+    // slivers of grass. Matches how the roads are 2 tiles wide + a bit
+    // of ergonomics headroom.
     for (const cand of candidates) {
       const rect = cellToRect(
         cand.cell,
@@ -154,7 +158,7 @@ export function generateLayout(
         dims,
       );
       const candEff = effectiveRect(rect);
-      const collides = placed.some((p) => rectsOverlap(candEff, effectiveRect(p), 1));
+      const collides = placed.some((p) => rectsOverlap(candEff, effectiveRect(p), 3));
       if (!collides) {
         picked = rect;
         break;

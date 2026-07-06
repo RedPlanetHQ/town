@@ -8,21 +8,22 @@
 // CELL_{W,H} - PLOT_{W,H} = horizontal/vertical gutter between adjacent
 // plot footprints. Catalog sprites go up to 27 tiles wide (hospital-1)
 // and 25 tiles tall (victorian-house-1/2/3), and every sprite is
-// bottom-anchored on the plot rect — so a CELL_{W,H} smaller than the
-// tallest / widest sprite makes tall buildings extend past the row
-// above's plot rect and clip into the neighbour. CELL_W=30 gives a
-// 20-tile gutter (>> max sprite overhang of 8.5 tiles per side plus a
-// ±1.5 tile jitter), CELL_H=30 gives 23 tiles of vertical clearance —
-// enough for a 25-tile-tall sprite to stand up without punching into
-// the row above. Old values (CELL_W=18 / CELL_H=19) worked for short
-// sprites but broke as soon as the town used one of the taller
-// exteriors.
+// bottom-anchored on the plot rect — so CELL_H shorter than the
+// tallest sprite makes tall buildings extend past the row above's plot
+// rect and clip into the neighbour. CELL_H=27 clears a 25-tile sprite
+// with a 2-tile vertical safety margin (plus ±1.5-tile jitter room).
+// CELL_W=20 is smaller than the widest sprite (27) on purpose — the
+// layout's collision-aware placement will just spread wide sprites to
+// non-adjacent cells when they'd otherwise crash. Keeping the world
+// tighter than a naïve max-sprite grid keeps the total decor scatter
+// count (~10k) closer to the historical baseline, so the overworld
+// stays smooth to walk through.
 export const WORLD = {
-  W: 180,        // tiles (= 6 * CELL_W)
-  H: 150,        // tiles (= 5 * CELL_H)
+  W: 120,        // tiles (= 6 * CELL_W)
+  H: 135,        // tiles (= 5 * CELL_H)
   TILE: 16,      // px per tile (only used by the renderer)
-  CELL_W: 30,
-  CELL_H: 30,
+  CELL_W: 20,
+  CELL_H: 27,
   COLS: 6,
   ROWS: 5,
   PLOT_W: 10,

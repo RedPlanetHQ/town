@@ -38,9 +38,6 @@ export type PanelState = {
 // Memory explorer overlay (LIBRARY → table interaction). Null = closed.
 export type ExplorerState = { open: true } | null;
 
-// Tasks overlay (OFFICE → desk interaction). Null = closed.
-export type TasksState = { open: true } | null;
-
 // Invite modal — URL + share code. Opened from the identity card
 // dropdown's "Invite" action.
 export type InviteState = { open: true } | null;
@@ -157,7 +154,6 @@ type State = {
   prompt: PromptState;
   panel: PanelState;
   explorer: ExplorerState;
-  tasks: TasksState;
   dialogue: DialogueState;
   chat: ChatState;
   invite: InviteState;
@@ -177,7 +173,6 @@ let state: State = {
   prompt: null,
   panel: null,
   explorer: null,
-  tasks: null,
   dialogue: null,
   chat: null,
   invite: null,
@@ -241,17 +236,6 @@ export const ui = {
   closeExplorer() {
     if (!state.explorer) return;
     state = { ...state, explorer: null };
-    emit();
-  },
-
-  openTasks() {
-    state = { ...state, tasks: { open: true }, prompt: null };
-    emit();
-  },
-
-  closeTasks() {
-    if (!state.tasks) return;
-    state = { ...state, tasks: null };
     emit();
   },
 
@@ -407,7 +391,6 @@ export const ui = {
     return (
       state.panel !== null ||
       state.explorer !== null ||
-      state.tasks !== null ||
       state.chat !== null ||
       state.invite !== null ||
       state.shareImage !== null ||
