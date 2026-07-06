@@ -15,7 +15,7 @@
 // What it skips for now (will fold in later):
 //   • mailbox, day/night, HUD, TownState integration, guest dialogs
 
-import type { KAPLAYCtx } from "kaplay";
+import type { GameObj, KAPLAYCtx } from "kaplay";
 
 import { TILE, VIEW_W, VIEW_H, INK, PALETTE, hex } from "../config";
 import { GRASS_HEX, autotile9Slice } from "../../lib/plot-render";
@@ -173,15 +173,115 @@ function drawPonds(k: KAPLAYCtx, ponds: PlotPond[]): Set<string> {
   return set;
 }
 
-function drawDecor(k: KAPLAYCtx, decor: PlotDecor[]) {
+// Chunk-based decor streaming. `plot.decor` can hit 15-20k entries on the
+// full 180×150 world, and every one of those becomes a kaplay game object
+// that iterates every frame. Rendering all of them at once made walking
+// feel choppy on lower-end machines.
+//
+// Instead: bucket decor into DECOR_CHUNK-tile squares at boot; keep only
+// the chunks within (RADIUS_CX × RADIUS_CY) of the player's chunk alive.
+// The player only sees roughly one viewport of decor at a time, so
+// bringing "alive" chunks down to ~5-7× the visible area is enough
+// buffer to hide streaming pop-in behind the screen edge while keeping
+// per-frame object count bounded (~2-4k instead of 15-20k).
+//
+// Collision is intentionally NOT streamed — the `blocked` set is built
+// once from the full decor list so stump collision doesn't depend on
+// which chunks are currently rendered.
+const DECOR_CHUNK = 8;      // tiles per chunk edge
+const DECOR_RADIUS_CX = 6;  // horizontal chunks of buffer around the player
+const DECOR_RADIUS_CY = 5;  // vertical chunks of buffer around the player
+
+function chunkKey(cx: number, cy: number): string {
+  return cx + "," + cy;
+}
+
+function chunkOf(tx: number, ty: number): { cx: number; cy: number } {
+  return {
+    cx: Math.floor(tx / DECOR_CHUNK),
+    cy: Math.floor(ty / DECOR_CHUNK),
+  };
+}
+
+interface DecorStream {
+  update: (playerTx: number, playerTy: number) => void;
+  destroy: () => void;
+}
+
+function createDecorStream(
+  k: KAPLAYCtx,
+  decor: PlotDecor[],
+): DecorStream {
+  // Bucket by chunk. Trees / other decor share the same z rule as the
+  // old draw pass — trees on z=8 (in front of buildings' bottom third),
+  // ground scatter on z=5.
+  const byChunk = new Map<string, PlotDecor[]>();
   for (const d of decor) {
-    const id = decorSpriteId(d.group, d.spriteId);
-    k.add([
-      k.sprite(id),
-      k.pos(d.tx * TILE, d.ty * TILE),
-      k.z(d.group === "trees" ? 8 : 5),
-    ]);
+    const { cx, cy } = chunkOf(d.tx, d.ty);
+    const key = chunkKey(cx, cy);
+    let arr = byChunk.get(key);
+    if (!arr) {
+      arr = [];
+      byChunk.set(key, arr);
+    }
+    arr.push(d);
   }
+
+  const live = new Map<string, GameObj[]>();
+
+  function spawnChunk(key: string): GameObj[] {
+    const entries = byChunk.get(key);
+    if (!entries) return [];
+    const objs: GameObj[] = [];
+    for (const d of entries) {
+      const id = decorSpriteId(d.group, d.spriteId);
+      objs.push(
+        k.add([
+          k.sprite(id),
+          k.pos(d.tx * TILE, d.ty * TILE),
+          k.z(d.group === "trees" ? 8 : 5),
+        ]),
+      );
+    }
+    return objs;
+  }
+
+  function despawnChunk(objs: GameObj[]) {
+    for (const o of objs) {
+      try {
+        o.destroy();
+      } catch {
+        // Already destroyed by scene teardown — swallow.
+      }
+    }
+  }
+
+  return {
+    update(playerTx: number, playerTy: number) {
+      const { cx, cy } = chunkOf(playerTx, playerTy);
+      const wanted = new Set<string>();
+      for (let dy = -DECOR_RADIUS_CY; dy <= DECOR_RADIUS_CY; dy++) {
+        for (let dx = -DECOR_RADIUS_CX; dx <= DECOR_RADIUS_CX; dx++) {
+          wanted.add(chunkKey(cx + dx, cy + dy));
+        }
+      }
+      // Spawn chunks newly in range.
+      for (const key of wanted) {
+        if (live.has(key)) continue;
+        live.set(key, spawnChunk(key));
+      }
+      // Despawn chunks that left the buffer.
+      for (const [key, objs] of live.entries()) {
+        if (wanted.has(key)) continue;
+        despawnChunk(objs);
+        live.delete(key);
+      }
+    },
+    destroy() {
+      for (const objs of live.values()) despawnChunk(objs);
+      live.clear();
+    },
+  };
 }
 
 function drawBuilding(k: KAPLAYCtx, b: PlotBuilding) {
@@ -276,6 +376,7 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
     let unsubscribe: (() => void) | null = null;
     let unsubSession: (() => void) | null = null;
     let detachRemotes: (() => void) | null = null;
+    let decorStreamRef: DecorStream | null = null;
 
     async function boot(initialPlot?: Plot, initialVersion?: number) {
       const initialPayload = initialPlot
@@ -317,10 +418,15 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       registerWorldBounds({ worldPxW, worldPxH });
 
       // --- Render order: ground → ponds → paths → decor → buildings.
+      // Decor is streamed in chunks around the player instead of being
+      // added all at once — see `createDecorStream`. Initial spawn +
+      // updates happen after the player exists so we can seed the
+      // stream from the spawn tile.
       drawGround(k, worldW, worldH);
       const pondSet = drawPonds(k, plot.ponds);
       const pathSet = drawPaths(k, plot.paths);
-      drawDecor(k, plot.decor);
+      const decorStream = createDecorStream(k, plot.decor);
+      decorStreamRef = decorStream;
       for (const b of plot.buildings) drawBuilding(k, b);
 
       // Tell React the world is rendered — BootScreen can dismiss
@@ -421,6 +527,9 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
           ty: tile.ty,
           facing: player.facing,
         });
+        // Stream decor chunks in/out of range on every tile arrival. Cheap
+        // per-move: chunk math + a Set diff over ~130 chunks total.
+        decorStream.update(tile.tx, tile.ty);
         const owner = doorOwner.get(tile.tx + "," + tile.ty);
         if (!owner) return;
         // Route into the legacy interior scene by category. Future: read
@@ -443,6 +552,11 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       };
 
       const player = makePlayer(k, spawn, isBlocked, onArrive);
+
+      // Seed the streaming buffer around the spawn tile before the first
+      // frame renders so the player never sees an empty forest that
+      // fills in a frame later.
+      decorStream.update(player.tile.tx, player.tile.ty);
 
       // First publish so anyone already in the room sees where we spawned.
       publishLocalPosition({
@@ -583,6 +697,9 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       if (unsubscribe) unsubscribe();
       if (unsubSession) unsubSession();
       if (detachRemotes) detachRemotes();
+      // Drop every streamed decor game object so kaplay's scene teardown
+      // doesn't leak them into the next scene.
+      if (decorStreamRef) decorStreamRef.destroy();
       ui.setHud(null);
       ui.setProximity(null);
     });
