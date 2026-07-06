@@ -110,7 +110,8 @@ function buildSystemPrompt(
 ): string {
   const name = safeInline(founder.name, 80);
   const role = safeInline(founder.description, 240);
-  const voice = safeBlock(founder.prompt, 4000);
+  // See npc-chat/route.ts: 4000 truncated richly-authored prompts mid-section.
+  const voice = safeBlock(founder.prompt, 16000);
   const speakerName = safeInline(viewer.name, 80) || "the player";
   const inviteeName = invitee ? safeInline(invitee.name, 80) : "";
 

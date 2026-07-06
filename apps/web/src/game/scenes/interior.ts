@@ -622,7 +622,7 @@ const INTERIORS: Record<BuildingKey, InteriorSpec> = {
         // refreshed session on next interact.
         tx: 10, ty: 2,
         key: "home-profile",
-        label: "Sign in",
+        label: () => (getSession() ? "Profile" : "Sign in"),
         panel: (republish) => {
           const s = getSession();
           if (s) {

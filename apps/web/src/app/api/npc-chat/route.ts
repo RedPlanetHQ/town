@@ -218,7 +218,10 @@ function buildSystemPrompt(
 ): string {
   const name = safeInline(npc.name, 80);
   const role = safeInline(npc.description, 240);
-  const voice = safeBlock(npc.prompt, 4000);
+  // 4000 silently dropped the back half of any richly-authored NPC prompt
+  // (e.g. showcase-town character sheets running 8-12k chars) — the model
+  // never saw the "how to behave" / reveal-sequencing sections at all.
+  const voice = safeBlock(npc.prompt, 16000);
   const speakerName = safeInline(viewer.name, 80) || "the player";
   const inviteeName = invitee ? safeInline(invitee.name, 80) : "";
   const sessionKey = visitorSessionKey ? safeInline(visitorSessionKey, 120) : "";

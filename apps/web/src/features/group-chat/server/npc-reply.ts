@@ -320,7 +320,8 @@ function buildGroupSystemPrompt(
 ): string {
   const name = safeInline(npc.name, 80);
   const role = safeInline(npc.description, 240);
-  const voice = safeBlock(npc.prompt, 4000);
+  // See npc-chat/route.ts: 4000 truncated richly-authored prompts mid-section.
+  const voice = safeBlock(npc.prompt, 16000);
   const ownerName = safeInline(owner.name, 80) || "the resident";
   const cleanTopicTitle = topicTitle ? safeInline(topicTitle, 120) : "";
   const tone = addressed
