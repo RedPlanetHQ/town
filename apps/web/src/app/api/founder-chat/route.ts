@@ -53,8 +53,16 @@ const BodySchema = z
         id: z.string().optional(),
         role: z.enum(["system", "user", "assistant"]),
         content: z.string().optional(),
+        // See /api/npc-chat's identical schema for why `.passthrough()`
+        // matters — without it, tool parts get stripped down to `type`
+        // on parse and replayed tool-call history corrupts on the next
+        // turn.
         parts: z
-          .array(z.object({ type: z.string(), text: z.string().optional() }))
+          .array(
+            z
+              .object({ type: z.string(), text: z.string().optional() })
+              .passthrough(),
+          )
           .optional(),
       }),
     ),

@@ -86,8 +86,20 @@ const BodySchema = z
         // Allow either { content: "..." } (raw) or AI SDK UIMessage shape
         // ({ parts: [...] }). Both serialised by the client.
         content: z.string().optional(),
+        // `.passthrough()` matters here: tool parts carry toolCallId /
+        // state / input / output (and other part types carry their own
+        // extra fields) that we don't want to enumerate. A plain
+        // `z.object({ type, text })` strips everything else on parse,
+        // which silently corrupts replayed tool-call history on the
+        // next turn — convertToModelMessages then rebuilds an assistant
+        // tool-call entry missing toolCallId/input and blows up with
+        // AI_InvalidPromptError.
         parts: z
-          .array(z.object({ type: z.string(), text: z.string().optional() }))
+          .array(
+            z
+              .object({ type: z.string(), text: z.string().optional() })
+              .passthrough(),
+          )
           .optional(),
       }),
     ),
