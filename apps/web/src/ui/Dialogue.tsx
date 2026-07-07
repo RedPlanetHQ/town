@@ -18,9 +18,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ui, type DialogueState } from "./store";
 
 // Faster typewriter + a small breath between lines so the eye can follow
-// without the player having to tap through.
-const CHAR_MS = 8;
-const LINE_PAUSE_MS = 250;
+// without the player having to tap through. Tuned aggressively — the
+// original 8ms/char felt sluggish on ~60-char sentences ("Wander around
+// core, meet the residents..." took over half a second to type out).
+const CHAR_MS = 3;
+const LINE_PAUSE_MS = 120;
 
 export function Dialogue({
   dialogue,
