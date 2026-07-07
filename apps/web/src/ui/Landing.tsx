@@ -97,6 +97,12 @@ function WelcomeCard() {
           >
             Explore CORE town
           </a>
+          <a
+            href="/explore"
+            className="text-center text-[11px] font-bold uppercase tracking-widest text-paper/60 hover:text-paper"
+          >
+            Browse public towns →
+          </a>
         </div>
       </div>
     </div>

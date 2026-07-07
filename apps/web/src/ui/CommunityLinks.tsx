@@ -63,7 +63,23 @@ export function CommunityLinks() {
       >
         Discord
       </HudButton>
+      <HudButton
+        href="/explore"
+        title="Browse the public towns leaderboard"
+        aria-label="Explore"
+        icon={<ExploreGlyph />}
+      >
+        Explore
+      </HudButton>
     </>
+  );
+}
+
+function ExploreGlyph() {
+  return (
+    <svg width={12} height={12} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm4.2 6.2-3 7.4-7.4 3 3-7.4 7.4-3ZM12 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z" />
+    </svg>
   );
 }
 

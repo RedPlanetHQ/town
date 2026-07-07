@@ -14,6 +14,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { pickVisitorCharacter } from "@/lib/characters";
+import { prisma } from "@/lib/db";
 import { generateGuestId } from "@/lib/participant";
 import { getSessionFromCookie } from "@/lib/session";
 import { getTownBySlug } from "@/lib/town";
@@ -57,6 +58,17 @@ export async function POST(req: Request, ctx: { params: Promise<Params> }) {
     : pickVisitorCharacter();
 
   const guestId = generateGuestId();
+
+  // Ledger row for the /explore leaderboard's distinct-visitor count.
+  // Signed-in visitors key by user id so they don't inflate the count
+  // across browsers; guests key by the freshly minted per-visit guest
+  // id. The @@unique makes repeat visits a no-op.
+  const viewerKey = session ? `user:${session.user.id}` : `guest:${guestId}`;
+  await prisma.townVisit.upsert({
+    where: { townId_viewerKey: { townId: town.id, viewerKey } },
+    create: { townId: town.id, viewerKey },
+    update: {},
+  });
 
   const jar = await cookies();
   jar.set(

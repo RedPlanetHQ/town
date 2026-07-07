@@ -49,6 +49,7 @@ import { Flyover } from "./Flyover";
 import { HudButton } from "./HudButton";
 import { AuraBar } from "./AuraBar";
 import { PopulationPopover, type Aura } from "./PopulationPopover";
+import { TownInstructionsModal } from "./TownInstructionsModal";
 import { TownRadio } from "./TownRadio";
 import { TransitionLoading } from "./TransitionLoading";
 
@@ -114,6 +115,7 @@ export function TownGame(props: TownGameProps = {}) {
     chat,
     invite,
     shareImage,
+    instructions,
     feed,
     proximity,
     dm,
@@ -149,32 +151,21 @@ export function TownGame(props: TownGameProps = {}) {
   const activeSlug = ownerSlug ?? visitorSlug ?? null;
   const activeName = ownerName ?? (isVisitor ? (props as { townName: string }).townName : null);
 
-  // Welcome dialogue — fires on every page load once the scene is
-  // drawn. Uses the deployed town.description when present; falls back
-  // to a generic "wander around" line so a town that hasn't authored
-  // one still gets a friendly opener. We use a ref to guard against
-  // React StrictMode's double-mount in dev firing this twice; a real
-  // page reload wipes the ref and the dialogue reappears.
-  const welcomeFiredRef = useRef(false);
+  // Instructions modal auto-open — replaces the old auto-fire welcome
+  // dialogue. Fires on every page load once the scene is drawn. Shows
+  // the town description on top + a fixed how-to-play cheatsheet below;
+  // dismissed by the "Explore town" button, the ESC key, or backdrop
+  // click. Reachable any time from the Instructions pill in the bottom
+  // toolbar. The ref guards against React StrictMode double-mount in
+  // dev; a real page reload wipes it and the modal re-opens.
+  const instructionsFiredRef = useRef(false);
   useEffect(() => {
     if (!activeSlug || !activeName) return;
     if (!worldReady) return;
-    if (welcomeFiredRef.current) return;
-    welcomeFiredRef.current = true;
-    const description =
-      (townDescription && townDescription.trim()) ||
-      `Wander around ${activeName}, meet the residents, and see what they're up to.`;
-    ui.openDialogue({
-      key: `town-welcome-${activeSlug}`,
-      speaker: activeName,
-      accent: PALETTE.h240,
-      lines: [description],
-      action: {
-        label: "Explore",
-        onPress: () => ui.closeDialogue(),
-      },
-    });
-  }, [activeSlug, activeName, townDescription, worldReady]);
+    if (instructionsFiredRef.current) return;
+    instructionsFiredRef.current = true;
+    ui.openInstructions();
+  }, [activeSlug, activeName, worldReady]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -285,7 +276,45 @@ export function TownGame(props: TownGameProps = {}) {
         // through the bottom-bar tray to the cinematic surface.
         data-town-canvas
         className="absolute inset-0 h-full w-full focus:outline-none"
-        style={{ imageRendering: "pixelated" }}
+        style={{
+          imageRendering: "pixelated",
+          // Barely-there retro cast — hint of warmth + slight pixel-art
+          // snap. Global brightness/saturation left untouched so the
+          // plot stays vibrant; the vignette below carries most of the
+          // "retro" weight and darkens the corners where the HUD / bar
+          // buttons live so they read clearly.
+          filter: "sepia(0.06) contrast(1.05)",
+        }}
+      />
+
+      {/* Film-grain noise — procedural SVG turbulence, desaturated to
+          clean grayscale, tiled across the canvas. Sits above the
+          canvas and below the vignette (DOM order: canvas → noise →
+          vignette) so the corner darkening still reads cleanly. Plain
+          alpha blend (no mix-blend-mode) so the grain is unambiguously
+          visible on top of the pixel art. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-10"
+        style={{
+          backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")`,
+          backgroundRepeat: "repeat",
+          opacity: 0.22,
+        }}
+      />
+
+      {/* Corner vignette — pointer-events-none, above the canvas but
+          below every interactive UI overlay (z-30). Transparent through
+          the middle 55% of the screen and fades to a soft black at the
+          corners, giving the HUD/bottom-bar/community-links a darker
+          patch to sit on without dulling the middle of the plot. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-10"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.45) 100%)",
+        }}
       />
 
       {/* React-rendered cards floating above each remote player. Picks
@@ -358,6 +387,12 @@ export function TownGame(props: TownGameProps = {}) {
       ) : null}
       {!isVisitor && shareImage && ownerSlug ? (
         <ShareImage townSlug={ownerSlug} townName={ownerName ?? ownerSlug} />
+      ) : null}
+      {instructions && activeName ? (
+        <TownInstructionsModal
+          townName={activeName}
+          townDescription={townDescription ?? null}
+        />
       ) : null}
       {!isVisitor && suggestions.open ? (
         <Suggestions list={suggestions.list} />
@@ -565,9 +600,11 @@ function PopulationBadge({
 }
 
 // Left-side bottom toolbar: BuildTownCta (visitors) + Town Radio +
-// Flyover. Subscribes to scene changes so the Flyover button drops
-// off the moment the player walks into a building (the cinematic
-// fly-over only makes sense over the overworld plot).
+// Flyover + Instructions. Subscribes to scene changes so the Flyover
+// button drops off the moment the player walks into a building (the
+// cinematic fly-over only makes sense over the overworld plot). The
+// Instructions pill stays visible in every scene so a confused
+// visitor can pull up the controls from anywhere.
 function BottomToolbar({
   isVisitor,
   townName,
@@ -592,7 +629,25 @@ function BottomToolbar({
       {isVisitor ? <BuildTownCta /> : null}
       <TownRadio />
       {onOverworld ? <FlyoverButton townName={townName} /> : null}
+      <InstructionsButton />
     </div>
+  );
+}
+
+// "? Instructions" pill — reopens the town instructions modal (auto-
+// opened on load, dismissed by "Explore town"). Lives in every scene
+// so the player can always pull up the controls, unlike the Flyover
+// button which only makes sense on the overworld.
+function InstructionsButton() {
+  return (
+    <HudButton
+      onClick={() => ui.openInstructions()}
+      aria-label="Open town instructions"
+      title="What is this town? How do I play?"
+      icon={<span aria-hidden className="font-mono text-[10px]">?</span>}
+    >
+      Instructions
+    </HudButton>
   );
 }
 

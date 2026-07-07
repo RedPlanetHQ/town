@@ -146,6 +146,20 @@ function IdentityMenu({
               setShowNewModal(true);
             }}
           />
+          {activeSlug ? (
+            <VisibilityToggleItem
+              activeSlug={activeSlug}
+              onDone={() => setOpen(false)}
+            />
+          ) : null}
+          <a
+            role="menuitem"
+            href="/explore"
+            className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5"
+            onClick={() => setOpen(false)}
+          >
+            Browse towns…
+          </a>
           <button
             type="button"
             role="menuitem"
@@ -283,6 +297,74 @@ function SwitchTownItem({
         </div>
       ) : null}
     </div>
+  );
+}
+
+// "Make public / Make private" — flips Town.isPublic via PATCH
+// /api/towns/[slug]/visibility. Public towns appear on /explore and
+// their share code is embedded in the row link so anyone can enter
+// without knowing it up front. Fetches the current flag lazily on
+// mount so the label matches server state.
+function VisibilityToggleItem({
+  activeSlug,
+  onDone,
+}: {
+  activeSlug: string;
+  onDone: () => void;
+}) {
+  const [isPublic, setIsPublic] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(`/api/towns/${activeSlug}/visibility`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { isPublic?: boolean } | null) => {
+        if (cancelled) return;
+        if (data && typeof data.isPublic === "boolean") setIsPublic(data.isPublic);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSlug]);
+
+  async function toggle() {
+    if (isPublic === null || busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/towns/${activeSlug}/visibility`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ isPublic: !isPublic }),
+      });
+      if (res.ok) {
+        const body = (await res.json()) as { isPublic: boolean };
+        setIsPublic(body.isPublic);
+      }
+    } finally {
+      setBusy(false);
+      onDone();
+    }
+  }
+
+  const label =
+    isPublic === null
+      ? "Loading…"
+      : isPublic
+        ? "Make private"
+        : "Publish to /explore…";
+
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={isPublic === null || busy}
+      className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5 disabled:opacity-50"
+      onClick={() => void toggle()}
+    >
+      {label}
+    </button>
   );
 }
 

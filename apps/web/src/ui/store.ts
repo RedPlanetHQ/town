@@ -46,6 +46,12 @@ export type InviteState = { open: true } | null;
 // share buttons. Opened from the identity card dropdown's "Share" action.
 export type ShareImageState = { open: true } | null;
 
+// Instructions modal — town description + how-to-play cheatsheet.
+// Auto-opens on every page load into a town (replaces the old auto-fire
+// welcome dialogue) and is also reachable any time from the "Instructions"
+// pill in the bottom-left toolbar.
+export type InstructionsState = { open: true } | null;
+
 // Town activity feed — slide-in panel on the right edge of the screen.
 // Opened from the top-right FEED button on the overworld HUD. Visitor
 // + owner both see the same feed.
@@ -158,6 +164,7 @@ type State = {
   chat: ChatState;
   invite: InviteState;
   shareImage: ShareImageState;
+  instructions: InstructionsState;
   feed: FeedState;
   proximity: ProximityState;
   dm: DmState;
@@ -177,6 +184,7 @@ let state: State = {
   chat: null,
   invite: null,
   shareImage: null,
+  instructions: null,
   feed: null,
   proximity: null,
   dm: null,
@@ -280,6 +288,18 @@ export const ui = {
   closeShareImage() {
     if (!state.shareImage) return;
     state = { ...state, shareImage: null };
+    emit();
+  },
+
+  openInstructions() {
+    if (state.instructions) return;
+    state = { ...state, instructions: { open: true }, prompt: null };
+    emit();
+  },
+
+  closeInstructions() {
+    if (!state.instructions) return;
+    state = { ...state, instructions: null };
     emit();
   },
 
@@ -394,6 +414,7 @@ export const ui = {
       state.chat !== null ||
       state.invite !== null ||
       state.shareImage !== null ||
+      state.instructions !== null ||
       state.dm !== null ||
       state.suggestions.open
     );

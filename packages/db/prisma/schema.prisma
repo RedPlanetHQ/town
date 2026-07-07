@@ -79,6 +79,13 @@ model Town {
   // "active" inside the same transaction that applies the shape.
   status        String         @default("active")
 
+  // Owner opt-in to appear on the public /explore leaderboard. When true
+  // the /explore page lists this town and embeds a share-code-prefilled
+  // link so anyone can enter without knowing the code up front. When
+  // false the town behaves exactly as before — only reachable via the
+  // owner sharing the code manually.
+  isPublic      Boolean        @default(false)
+
   // Pending mutation queue for this town. Each entry mirrors a tool
   // call the creator agent made:
   //   { id, kind, payload, summary, createdAt }
@@ -95,6 +102,7 @@ model Town {
   suggestions          PlotSuggestion[]
   creatorConversations CreatorConversation[]
   tokenUsage           TokenUsage[]
+  visits               TownVisit[]
   // Per-town catalog of visitor tags + SVG item templates. Authored under
   // the town deployment directory (tags inline in town.json, items as
   // items/manifest.json + items/<id>.svg) and uploaded via /api/town.
@@ -425,6 +433,24 @@ model GroupTopic {
 
   @@index([channelId, expiresAt])
   @@index([channelId, createdByKey, expiresAt])
+}
+
+// One row per (town, viewerKey) — a unique-visitor ledger for towns.
+// `viewerKey` follows the same "user:<id>" / "guest:<id>" shape used by
+// Conversation / VisitorTag. Written by /api/towns/[slug]/visit inside
+// the same handler that sets the visitor cookie, so successful gate
+// entry is the trigger. The unique constraint means repeat visits by
+// the same viewer no-op the upsert, so `count(rows)` = distinct
+// visitors — the input to the /explore leaderboard score.
+model TownVisit {
+  id         String   @id @default(cuid())
+  townId     String
+  town       Town     @relation(fields: [townId], references: [id], onDelete: Cascade)
+  viewerKey  String
+  createdAt  DateTime @default(now())
+
+  @@unique([townId, viewerKey])
+  @@index([townId])
 }
 
 // Tag awarded to a visitor by an NPC. Town-scoped (so the same browser can
