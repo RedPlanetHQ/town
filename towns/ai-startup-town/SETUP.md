@@ -1,9 +1,10 @@
 # AI Startup Town — deployment setup
 
 Content-only town, deploys via `town-cli` like the others. Depends on the
-CORE Google Docs integration in **service-account mode** so all created
-docs are public-by-link and owned by the town, not the operator's
-personal Drive.
+CORE Google Docs integration in **OAuth mode** (the town owner connects
+their own Google account). Every cloned deck is public-by-link and
+lands inside a `startups/` folder in the town owner's Drive, auto-created
+by the tool on the first clone.
 
 ## The roster
 
@@ -67,29 +68,26 @@ Every cofounder MDX carries the same guarded pattern before its
 
 ## One-time setup for the town owner
 
-1. **Create a Google Cloud service account.**
-   - GCP console → IAM & Admin → Service Accounts → Create.
-   - Download the JSON key. Don't check it into git.
+1. **Connect Google Docs to CORE.** From `app.getcore.me`, connect the
+   Google Docs integration for this town owner's account (OAuth flow —
+   Docs + Drive scopes). Click past the "Google hasn't verified this
+   app" warning ("Advanced → Go to app").
 
-2. **Enable APIs** on the service account's project:
-   - Google Docs API
-   - Google Drive API
+2. **Verify template access.** The template lives at:
+   `https://docs.google.com/document/d/1PoJx2e0o1l2UPQHvjG7-Cx0mL_G2ga_RQd3qWqtSTNo/edit`
+   Open the URL while signed in as the town owner. Sam calls
+   `clone_document` with this exact URL hardcoded (see `npcs/welcome.mdx`
+   step 3), so the town owner's OAuth session must be able to read it —
+   either they own it, or it's shared with them as at least Viewer, or
+   it's public "anyone with the link can view".
 
-3. **Create the template doc** (owned by the service account).
-   - Either: log in as the service account and create the doc directly.
-   - Or: create it under any Google account, then share it with the
-     service account's email as **Editor**.
-   - Title the doc **exactly** `AI STARTUP TOWN TEMPLATE`. Sam finds
-     it by name at clone time.
-   - Paste the [template skeleton](#template-doc-skeleton) below.
+3. **Deploy the town.** `cd towns/ai-startup-town && town deploy`.
 
-4. **Connect to CORE.** From `app.getcore.me`, connect the Google Docs
-   integration for this town owner's account. Choose the **service
-   account** auth path. Paste the JSON key. This gives Sam a
-   service-account-backed Docs client that auto-shares every cloned
-   doc as anyone-with-link viewer.
-
-5. **Deploy the town.** `cd towns/ai-startup-town && town deploy`.
+Every visitor's cloned deck will be created inside a `startups/` folder
+at the root of the town owner's Drive. The folder is created lazily by
+`clone_document` the first time it's called; no manual folder setup is
+required. Every clone is shared publicly (anyone-with-link can view) so
+the founder's URL just works.
 
 ## How doc state flows
 
@@ -101,9 +99,11 @@ Every cofounder MDX carries the same guarded pattern before its
    DECK — <Session key>`. Cross-check the memory result against this
    list; if memory returned a URL but Drive doesn't have it, treat the
    deck as gone.
-3. If both misses (or memory is stale): find `AI STARTUP TOWN TEMPLATE`,
-   call `clone_document(source, title: "AI STARTUP TOWN DECK — <Session
-   key>", makePublic: true)`. Take the returned URL.
+3. If both misses (or memory is stale): call `clone_document` with the
+   hardcoded template URL
+   (`https://docs.google.com/document/d/1PoJx2e0o1l2UPQHvjG7-Cx0mL_G2ga_RQd3qWqtSTNo/edit`),
+   `title: "AI STARTUP TOWN DECK — <Session key>"`,
+   `folderName: "startups"`, `makePublic: true`. Take the returned URL.
 4. Return the URL in chat and point the founder at the cofounders.
 
 **Each cofounder's job (per section):**
@@ -126,8 +126,12 @@ Deterministic naming means every NPC computes the same doc name.
 
 ## Template doc skeleton
 
-Paste this into `AI STARTUP TOWN TEMPLATE`. Each cofounder replaces
-exactly one placeholder with their signed, beat-structured paragraph.
+The canonical template is the doc at
+`https://docs.google.com/document/d/1PoJx2e0o1l2UPQHvjG7-Cx0mL_G2ga_RQd3qWqtSTNo/edit`.
+If you're setting up a fresh copy under a different owner, create a new
+doc with any title (Sam clones by URL, not by name) and paste the
+skeleton below. Each cofounder replaces exactly one placeholder with
+their signed, beat-structured paragraph.
 
 ```
 [Banner image at top]
