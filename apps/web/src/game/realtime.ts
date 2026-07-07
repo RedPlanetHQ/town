@@ -31,12 +31,14 @@ export type RemotePlayer = {
   // render the sleeping animation. Default false on absent.
   idle: boolean;
   // Which scene the remote is currently in. `"overworld"` for the open
-  // town, `"interior:<BuildingKey>"` (e.g. `"interior:HOME"`) for
-  // anyone standing inside a building. Used by scene renderers + the
-  // proximity tick to scope remote sprites to the same room as the
-  // local viewer — otherwise a visitor who walks through the front
-  // door keeps being rendered at the door tile because the heartbeat
-  // re-publishes the last broadcast position.
+  // town, `"interior:<PlotBuilding.id>"` (e.g. `"interior:home"` or
+  // `"interior:cake-shop"`) for anyone standing inside a building.
+  // Keyed on the building id (not category) so two buildings of the
+  // same category don't share a virtual room. Used by scene renderers
+  // + the proximity tick to scope remote sprites to the same room as
+  // the local viewer — otherwise a visitor who walks through the
+  // front door keeps being rendered at the door tile because the
+  // heartbeat re-publishes the last broadcast position.
   scene: string;
   // Local clock when we last received an update for this player. Used
   // by the heartbeat expiry sweep to drop ghosts when a tab closes
