@@ -8,7 +8,12 @@ import { startSuggestionsPoller } from "../game/suggestions";
 import { startWorkspaceSync } from "../game/workspace";
 import { startNpcsSync, getNpcCount, onNpcsChange, refreshNpcs } from "../game/npcs";
 import { setOwnerTownSlug, setViewerTownSlug } from "../game/plotClient";
-import { setAura as publishAura } from "../game/aura";
+import {
+  CLIENT_AURA_SLEEP_THRESHOLD,
+  getAura as getAuraFromStore,
+  onAuraChange,
+  setAura as publishAura,
+} from "../game/aura";
 import { setPlayerCharacter } from "../game/character";
 import {
   startRealtime,
@@ -370,6 +375,50 @@ export function TownGame(props: TownGameProps = {}) {
         // scene fetches + redraws.
         <TransitionLoading />
       ) : null}
+
+      {/* Dim overlay when the town's aura is under the sleep threshold.
+          Non-blocking (pointer-events: none) so the player can still
+          wander around — building entry is what actually gets gated by
+          the bouncer dialogue in overworld-plot.ts. */}
+      <SleepingOverlay />
+    </div>
+  );
+}
+
+/** Dark tint + small "Town sleeping" pill while aura is below
+ *  CLIENT_AURA_SLEEP_THRESHOLD. Reads from the same pub-sub the
+ *  overworld's entry gate uses, so both surfaces agree on the state. */
+function SleepingOverlay() {
+  const [sleeping, setSleeping] = useState(
+    () =>
+      (getAuraFromStore()?.current ?? Number.POSITIVE_INFINITY) <
+      CLIENT_AURA_SLEEP_THRESHOLD,
+  );
+  useEffect(() => {
+    const update = () => {
+      const aura = getAuraFromStore();
+      setSleeping(
+        aura !== null && aura.current < CLIENT_AURA_SLEEP_THRESHOLD,
+      );
+    };
+    update();
+    return onAuraChange(update);
+  }, []);
+  if (!sleeping) return null;
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-20"
+      style={{ background: "rgba(8, 10, 18, 0.4)" }}
+      aria-hidden
+    >
+      <div className="pointer-events-none absolute inset-x-0 top-16 flex justify-center">
+        <div
+          className="rounded border-2 border-black bg-ink px-3 py-1 text-xs font-black uppercase tracking-wider text-paper shadow-md"
+          style={{ background: "#0e1116" }}
+        >
+          Zzz · Town is sleeping · Aura low
+        </div>
+      </div>
     </div>
   );
 }

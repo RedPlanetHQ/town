@@ -111,12 +111,12 @@ export interface TownItemBundle extends TownItemDef {
 }
 
 export interface TownJson {
-  /** Server-side town id, written by `town new` / `town clone` so that
-   *  later commands (deploy, creator chat) can resolve back to the
-   *  authoritative town without depending on the folder name matching a
-   *  slug. Optional for back-compat with folders scaffolded before
-   *  multi-town support landed. Placed first when written so it's the
-   *  first thing a human reading town.json sees. */
+  /** Server-assigned town id. Present after `town new` or `town clone`.
+   *  `town deploy` prefers it over the folder name when resolving which
+   *  town to push to. Optional only so older local folders predating the
+   *  multi-town migration keep loading. Written first in the JSON so a
+   *  human opening town.json immediately sees which town this folder is
+   *  bound to. */
   id?: string;
   buildings: TownBuilding[];
   /** May be omitted at the top level — deploy looks under
@@ -165,16 +165,13 @@ export async function readTownJson(dir: string): Promise<TownJson> {
 }
 
 export async function writeTownJson(dir: string, town: TownJson): Promise<void> {
-  // Re-order so `id` is the first key when present — matches the
-  // human-readability expectation in TownJson's doc comment.
-  const ordered: TownJson = town.id !== undefined
-    ? {
-        id: town.id,
-        buildings: town.buildings,
-        ...(town.customPlots !== undefined ? { customPlots: town.customPlots } : {}),
-        ...(town.tags !== undefined ? { tags: town.tags } : {}),
-      }
-    : town;
+  // Re-order the keys so `id` (when present) lands at the top of the
+  // serialised JSON — editors scanning the file in their first screen
+  // immediately see which town this folder is bound to. Spread over
+  // `rest` (rather than listing known keys) so any field added to
+  // TownJson later gets preserved on save instead of silently dropped.
+  const { id, ...rest } = town;
+  const ordered: TownJson = id !== undefined ? { id, ...rest } : rest;
   await writeJson(join(dir, "town.json"), ordered);
 }
 

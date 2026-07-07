@@ -434,10 +434,11 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
             key: "town-sleeping",
             speaker: "Bouncer",
             accent: PALETTE.h240,
+            // One line on purpose — the dialogue types out chars fast
+            // but pauses ~250ms between lines, so a three-line quip
+            // felt slow. Same copy, snappier delivery.
             lines: [
-              "Kicked out.",
-              "Everyone's asleep.",
-              "Come back when the vibes recover.",
+              "Kicked out. Everyone's asleep — come back when the vibes recover.",
             ],
             action: {
               label: "OK",
