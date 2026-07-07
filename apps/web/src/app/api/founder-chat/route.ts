@@ -24,10 +24,18 @@ import {
 } from "ai";
 import { z } from "zod";
 
+import { readActiveSlug } from "@/lib/active-slug";
 import { resolveUser } from "@/lib/auth-bearer";
 import { getChatModel } from "@/lib/chat-model";
+import { prisma } from "@/lib/db";
 import { safeBlock, safeInline } from "@/lib/prompt-sanitize";
 import { getSystemNpcs, type SystemNpc } from "@/lib/system-npcs";
+import {
+  AURA_SLEEP_THRESHOLD,
+  modelIdOf,
+  recordTokenUsage,
+  tokensFrom,
+} from "@/lib/token-usage";
 import { resolveViewer } from "@/lib/viewer";
 
 export const runtime = "nodejs";
@@ -169,6 +177,12 @@ export async function POST(req: Request) {
   //   • townSlug absent → legacy path. Require resolveUser since
   //     there's no other identity signal.
   let viewer: ViewerContext;
+  // Resolve the townId + ownerId that pays for this call. Both branches
+  // aim to land at a real town so token usage always gets logged and
+  // aura always gets debited. Legacy owner-only path falls back to the
+  // caller's active-slug cookie, then to their most recent town.
+  let townId: string | null = null;
+  let townOwnerId: string | null = null;
   if (body.townSlug) {
     const view = await resolveViewer(body.townSlug);
     if ("error" in view) {
@@ -178,6 +192,8 @@ export async function POST(req: Request) {
       });
     }
     viewer = { isOwner: view.isOwner, name: view.displayName };
+    townId = view.town.id;
+    townOwnerId = view.town.ownerId;
   } else {
     const resolved = await resolveUser(req);
     if (!resolved) {
@@ -187,6 +203,43 @@ export async function POST(req: Request) {
       });
     }
     viewer = { isOwner: true, name: resolved.user.name || "the owner" };
+    // Prefer the active-slug cookie so multi-town owners hit the right
+    // wallet; fall back to most-recently-updated town.
+    const activeSlug = await readActiveSlug();
+    let own: { id: string; ownerId: string } | null = null;
+    if (activeSlug) {
+      own = await prisma.town.findFirst({
+        where: { slug: activeSlug, ownerId: resolved.user.id },
+        select: { id: true, ownerId: true },
+      });
+    }
+    if (!own) {
+      own = await prisma.town.findFirst({
+        where: { ownerId: resolved.user.id },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, ownerId: true },
+      });
+    }
+    if (own) {
+      townId = own.id;
+      townOwnerId = own.ownerId;
+    }
+  }
+
+  // Sleeping gate — same rule as /api/npc-chat. When there's no town
+  // context (extremely stale legacy caller with no towns yet), skip the
+  // gate; token logging is also a no-op in that path.
+  if (townId) {
+    const auraRow = await prisma.aura.findUnique({
+      where: { townId },
+      select: { current: true },
+    });
+    if (auraRow && auraRow.current < AURA_SLEEP_THRESHOLD) {
+      return new Response(
+        JSON.stringify({ error: "town-sleeping", auraRemaining: auraRow.current }),
+        { status: 423, headers: { "content-type": "application/json" } },
+      );
+    }
   }
 
   const system = buildSystemPrompt(founder, body.mode, body.invitee, viewer);
@@ -208,6 +261,7 @@ export async function POST(req: Request) {
       { status: 500, headers: { "content-type": "application/json" } },
     );
   }
+  const chatModelId = modelIdOf(model);
 
   const result = streamText({
     model,
@@ -221,6 +275,19 @@ export async function POST(req: Request) {
     // empty today so this is a no-op cap; matched here so future tool
     // additions don't silently inherit the AI-SDK's default of 1.
     stopWhen: stepCountIs(5),
+    async onFinish(event) {
+      if (!townId || !townOwnerId) return;
+      const tokens = tokensFrom(event.usage);
+      await recordTokenUsage({
+        townId,
+        userId: townOwnerId,
+        event: "single_chat",
+        model: chatModelId,
+        inputTokens: tokens.inputTokens,
+        outputTokens: tokens.outputTokens,
+        npcId: "core-founder",
+      });
+    },
   });
 
   return result.toUIMessageStreamResponse();

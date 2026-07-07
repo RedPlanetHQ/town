@@ -53,6 +53,11 @@ import {
   listPlotkeysTool,
   type ToolContext,
 } from "@/lib/creator/read-tools";
+import {
+  modelIdOf,
+  recordTokenUsage,
+  tokensFrom,
+} from "@/lib/token-usage";
 import { getTownBySlug } from "@/lib/town";
 
 export const dynamic = "force-dynamic";
@@ -325,14 +330,16 @@ export async function POST(req: Request) {
     data: { current: { decrement: TURN_COST } },
   });
 
+  const creatorModel = getCreatorModel();
+  const creatorModelId = modelIdOf(creatorModel);
   const result = streamText({
-    model: getCreatorModel(),
+    model: creatorModel,
     system: buildSystemPrompt(town.name),
     messages: history,
     tools,
     toolChoice: "auto",
     stopWhen: stepCountIs(MAX_STEPS),
-    onFinish: async ({ text, toolCalls, toolResults }) => {
+    onFinish: async ({ text, toolCalls, toolResults, usage }) => {
       try {
         await prisma.creatorMessage.create({
           data: {
@@ -351,6 +358,15 @@ export async function POST(req: Request) {
         // history. Surface it in logs so we notice.
         console.error("[creator] persist assistant message failed", e);
       }
+      const tokens = tokensFrom(usage);
+      await recordTokenUsage({
+        townId: town.id,
+        userId: resolved.user.id,
+        event: "town_building_chat",
+        model: creatorModelId,
+        inputTokens: tokens.inputTokens,
+        outputTokens: tokens.outputTokens,
+      });
     },
   });
 

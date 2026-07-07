@@ -60,6 +60,12 @@ import {
 import { safeBlock, safeInline } from "@/lib/prompt-sanitize";
 import { loadTownCatalog } from "@/lib/town-tools";
 import { recordTownActivity } from "@/lib/town-activity";
+import {
+  AURA_SLEEP_THRESHOLD,
+  modelIdOf,
+  recordTokenUsage,
+  tokensFrom,
+} from "@/lib/token-usage";
 import { resolveViewer } from "@/lib/viewer";
 
 export const runtime = "nodejs";
@@ -135,6 +141,7 @@ Rules:
 
 interface NpcInfo {
   id: string;
+  buildingId: string;
   name: string;
   description: string;
   prompt: string;
@@ -177,6 +184,7 @@ async function resolveNpc(
   }
   return {
     id: row.id,
+    buildingId: row.buildingId,
     name: row.name,
     description: row.description,
     prompt: row.prompt,
@@ -480,6 +488,21 @@ export async function POST(req: Request) {
     parts: m.parts ?? (m.content ? [{ type: "text", text: m.content }] : []),
   })) as UIMessage[];
 
+  // Sleeping gate — refuse new chat turns when the town's aura is under
+  // AURA_SLEEP_THRESHOLD. Concurrent onFinish handlers can still drain
+  // aura below the threshold; the debit is clamped at zero so nothing
+  // breaks, but we bail here to stop starting new turns.
+  const auraRow = await prisma.aura.findUnique({
+    where: { townId: npcTownId },
+    select: { current: true },
+  });
+  if (auraRow && auraRow.current < AURA_SLEEP_THRESHOLD) {
+    return new Response(
+      JSON.stringify({ error: "town-sleeping", auraRemaining: auraRow.current }),
+      { status: 423, headers: { "content-type": "application/json" } },
+    );
+  }
+
   let model;
   try {
     model = getChatModel();
@@ -492,6 +515,7 @@ export async function POST(req: Request) {
       { status: 500, headers: { "content-type": "application/json" } },
     );
   }
+  const chatModelId = modelIdOf(model);
 
   // Capture the speaker's most recent message before streaming starts —
   // by the time onFinish fires the request body is long gone, and the
@@ -570,6 +594,17 @@ export async function POST(req: Request) {
           mode: body.mode,
           ...(body.invitee ? { invitee: body.invitee.name } : {}),
         },
+      });
+      const tokens = tokensFrom(event.usage);
+      await recordTokenUsage({
+        townId: npcTownId,
+        userId: npcOwnerId,
+        event: "single_chat",
+        model: chatModelId,
+        inputTokens: tokens.inputTokens,
+        outputTokens: tokens.outputTokens,
+        npcId: npc!.id,
+        buildingId: npc!.buildingId,
       });
     },
   });

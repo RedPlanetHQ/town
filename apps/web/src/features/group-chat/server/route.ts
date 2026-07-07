@@ -19,6 +19,7 @@ import { publish } from "@/lib/centrifugo";
 import { prisma } from "@/lib/db";
 import { normalizePermissions } from "@/lib/npc-templates";
 import { ensureNpcsForTown } from "@/lib/plot";
+import { AURA_SLEEP_THRESHOLD } from "@/lib/token-usage";
 import { recordTownActivity } from "@/lib/town-activity";
 
 import type {
@@ -214,6 +215,15 @@ async function maybeTriggerNpcReply(
   topicId: string | null,
   topicTitle: string | null,
 ): Promise<void> {
+  // Sleeping gate — when the town's aura is below AURA_SLEEP_THRESHOLD,
+  // skip both the moderator decision and the NPC reply. Humans can still
+  // post; NPCs go quiet until aura recovers. Same rule as /api/npc-chat.
+  const auraRow = await prisma.aura.findUnique({
+    where: { townId: access.viewer.town.id },
+    select: { current: true },
+  });
+  if (auraRow && auraRow.current < AURA_SLEEP_THRESHOLD) return;
+
   // Load the NPCs in this house ONCE. Auto-seed if the user's plot
   // predates the Npc table (same heal path /api/npc-chat uses).
   let npcs = await loadNpcsForBuilding(access);
@@ -270,14 +280,33 @@ async function maybeTriggerNpcReply(
     // failure mode for this loop.
     if (recentHumanRequestedStop(history)) return;
 
+    // If the previous NPC just asked the human a question, silence
+    // the chain — even if another NPC has something to add. Piling
+    // on with a second NPC question before the human has answered
+    // makes the human feel interrogated. The room recovers on the
+    // human's next turn: at that point the last message is human
+    // again and normal chain rules apply.
+    if (isChain && lastMessageIsNpcQuestion(history)) return;
+
     const pick = await pickResponder(
       cooldownKey,
       history,
       candidates,
       // Chain calls bypass the 8s room cooldown — that floor exists
       // to throttle replies to human spam, not to space out turns
-      // inside an active NPC-to-NPC exchange.
-      { skipRoomCooldown: isChain },
+      // inside an active NPC-to-NPC exchange. `usageContext` is
+      // present so the moderator can log its own "decision" TokenUsage
+      // row and debit aura when it actually calls the LLM (the
+      // deterministic direct-address short-circuit spends no tokens).
+      {
+        skipRoomCooldown: isChain,
+        usageContext: {
+          townId: access.viewer.town.id,
+          userId: access.viewer.town.ownerId,
+          buildingId: access.building.id,
+          topicId,
+        },
+      },
     );
     if (!pick) return;
 
@@ -303,6 +332,8 @@ async function maybeTriggerNpcReply(
 
     await generateAndPublishNpcReply({
       channelId: access.channelId,
+      townId: access.viewer.town.id,
+      buildingId: access.building.id,
       topicId,
       topicTitle,
       pick,
@@ -323,6 +354,14 @@ async function maybeTriggerNpcReply(
         name: access.ownerName,
         userId: access.viewer.town.ownerId,
       },
+      // Every NPC in this house — the picked NPC's own row gets
+      // filtered inside the prompt builder. Sending the full roster
+      // (not the addressed-only subset) means silent co-occupants
+      // are visible to the model even in fresh sessions.
+      roommates: candidates.map(({ name, description }) => ({
+        name,
+        description,
+      })),
       history,
     });
   }
@@ -356,6 +395,18 @@ function recentHumanRequestedStop(
     if (isStopRequest(row.text)) return true;
   }
   return false;
+}
+
+/** True when the tail of the history is an NPC message ending in a
+ *  question mark. Used to silence chain turns while the human still
+ *  owes an answer — a second NPC piling on with more questions
+ *  reads as filler and turns the human into an interviewee. */
+function lastMessageIsNpcQuestion(
+  history: Array<{ isNpc: boolean; text: string }>,
+): boolean {
+  const last = history[history.length - 1];
+  if (!last || !last.isNpc) return false;
+  return last.text.trimEnd().endsWith("?");
 }
 
 async function loadNpcsForBuilding(access: GroupChatAccess) {

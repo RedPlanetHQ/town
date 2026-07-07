@@ -24,6 +24,11 @@ import { generateObject } from "ai";
 import { z } from "zod";
 
 import { getChatModel } from "@/lib/chat-model";
+import {
+  modelIdOf,
+  recordTokenUsage,
+  tokensFrom,
+} from "@/lib/token-usage";
 
 const ROOM_COOLDOWN_MS = 8_000;
 
@@ -142,6 +147,9 @@ What's NOT okay, and is what kills the room:
 Default to silence when:
 - More than ONE NPC has already replied since the last human turn —
   the chain has run its course, let the humans speak.
+- The previous NPC just asked the human a question and the human
+  hasn't answered yet. Piling on with a second NPC question in the
+  same beat makes the human feel interrogated — let them reply first.
 - The topic has drifted off whatever the human actually raised.
 - The room has nothing fresh to add and is starting to spin in
   place.
@@ -182,6 +190,16 @@ export interface PickOptions {
    *  replies to *human* spam — inside a chain it would block the
    *  conversation entirely. */
   skipRoomCooldown?: boolean;
+  /** When present, the LLM branch logs a "decision" TokenUsage row +
+   *  debits aura. Omitted for callers that don't run inside a town
+   *  context (test-moderator.ts). The deterministic direct-address
+   *  branch spends no tokens so it never logs, even when this is set. */
+  usageContext?: {
+    townId: string;
+    userId: string;
+    buildingId: string;
+    topicId?: string | null;
+  };
 }
 
 export async function pickResponder(
@@ -192,6 +210,25 @@ export async function pickResponder(
 ): Promise<ModeratorPick | null> {
   if (npcs.length === 0) return null;
   if (history.length === 0) return null;
+
+  const lastRow = history[history.length - 1];
+
+  // Deterministic direct-address override. If the latest message is
+  // from a human and names one of the NPCs by word-boundary match,
+  // that NPC wins — no LLM call, no cooldown gate. The moderator
+  // prompt's "if the latest message names an NPC, that NPC may reply"
+  // rule is soft and small chat models drop it under load, which is
+  // how "hi dalton" ended up routed to PG. This short-circuit is the
+  // one signal we should never let the model override.
+  //
+  // The `!lastRow.isNpc` gate is load-bearing: it prevents the
+  // override from firing when the latest message is from an NPC, so
+  // the self-reply guard further down still fully protects that case.
+  // Don't drop the gate without adding an equivalent check here.
+  if (lastRow && !lastRow.isNpc) {
+    const addressed = findAddressedNpc(lastRow.text, npcs);
+    if (addressed) return { npc: addressed, addressed: true };
+  }
 
   if (!options.skipRoomCooldown) {
     const now = Date.now();
@@ -207,6 +244,7 @@ export async function pickResponder(
     // human-only chat.
     return null;
   }
+  const modModelId = modelIdOf(model);
 
   const npcList = npcs
     .map((n) => `- id="${n.id}", name="${n.name}", role="${n.description}"`)
@@ -234,6 +272,21 @@ export async function pickResponder(
       prompt: userPrompt,
     });
     pick = result.object;
+    if (options.usageContext) {
+      const tokens = tokensFrom(result.usage);
+      void recordTokenUsage({
+        townId: options.usageContext.townId,
+        userId: options.usageContext.userId,
+        event: "decision",
+        model: modModelId,
+        inputTokens: tokens.inputTokens,
+        outputTokens: tokens.outputTokens,
+        buildingId: options.usageContext.buildingId,
+        metadata: options.usageContext.topicId
+          ? { topicId: options.usageContext.topicId }
+          : undefined,
+      });
+    }
   } catch (e) {
     console.warn("[group-chat] moderator generateObject failed", e);
     return null;
@@ -269,4 +322,42 @@ export async function pickResponder(
  *  composed key pickResponder saw — pass `topicKey(channelId, topicId)`. */
 export function markSpoke(cooldownKey: string, _npcId: string): void {
   roomLastSpeak.set(cooldownKey, Date.now());
+}
+
+/** Word-boundary case-insensitive match on any candidate NPC's display
+ *  name, tolerating first-name-only addressing. NPC display names in
+ *  this codebase are typically full names ("Dalton Caldwell", "Garry
+ *  Tan") but humans address them by first name ("hi dalton"). We
+ *  build an alias list per NPC — the full name plus each token ≥ 3
+ *  chars — then match longest alias first so "Dalton Caldwell" wins
+ *  over "Dalton" if both would match, and multi-token full names beat
+ *  single-token first names on tie. The ≥ 3 char floor prevents
+ *  false-positive matches on tokens like "Al" or "Hu". Returns the
+ *  first NPC whose alias matches, or null. */
+function findAddressedNpc(
+  text: string,
+  npcs: NpcCandidate[],
+): NpcCandidate | null {
+  const aliases: Array<{ npc: NpcCandidate; alias: string }> = [];
+  for (const n of npcs) {
+    if (!n.name) continue;
+    const seen = new Set<string>();
+    const add = (a: string) => {
+      const trimmed = a.trim();
+      if (trimmed.length < 3) return;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      aliases.push({ npc: n, alias: trimmed });
+    };
+    add(n.name);
+    for (const token of n.name.split(/\s+/)) add(token);
+  }
+  aliases.sort((a, b) => b.alias.length - a.alias.length);
+  for (const { npc, alias } of aliases) {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`\\b${escaped}\\b`, "i");
+    if (re.test(text)) return npc;
+  }
+  return null;
 }

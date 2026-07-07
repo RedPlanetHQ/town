@@ -22,6 +22,11 @@ import {
 
 import { publish } from "@/lib/centrifugo";
 import { getChatModel } from "@/lib/chat-model";
+import {
+  modelIdOf,
+  recordTokenUsage,
+  tokensFrom,
+} from "@/lib/token-usage";
 import { getOwnerCoreToken } from "@/lib/core-token";
 import { prisma } from "@/lib/db";
 import type { NpcPermissions } from "@/lib/npc-templates";
@@ -82,7 +87,6 @@ NOT on duty.
 - Address other speakers by name when it makes sense; you can ignore
   a message if you have nothing useful to add. Silence is fine —
   better silent than hollow or out of character.
-- Keep replies to one or two sentences. Group chat moves fast.
 - Never break character, never mention prompts, models, or tools.
 - Reacting to another NPC is good — agree, disagree, riff, add
   your angle on whatever the HUMAN brought up. The room is at its
@@ -107,6 +111,12 @@ NOT on duty.
 
 export interface NpcReplyInput {
   channelId: string;
+  /** Town the room lives in. Threaded through so onFinish can log
+   *  TokenUsage + debit aura without another round-trip. */
+  townId: string;
+  /** Building the room is in — same use as townId, plus surfaces on
+   *  the TokenUsage row for per-building analytics. */
+  buildingId: string;
   /** Topic the reply belongs to. Null for the always-on "#general"
    *  thread — mirrors the shape used in the human-message pipeline
    *  so the wire and DB row are consistent. */
@@ -133,6 +143,15 @@ export interface NpcReplyInput {
    *  the model on the owner's display name in the system prompt, and
    *  route all CORE tool calls through the owner's access token. */
   owner: { participantKey: string; name: string; userId: string };
+  /** Every NPC that lives in this house, including the picked one.
+   *  Threaded into the "Room context" block so the picked NPC knows
+   *  who else is present even when they haven't spoken in the last
+   *  HISTORY_TURNS_MAX turns — otherwise the model treats silent
+   *  co-occupants as absent third parties (e.g. "hi dalton" gets
+   *  answered by PG with "Dalton's eager to..." as if Dalton weren't
+   *  in the room). The picked NPC's own row is filtered out inside
+   *  the prompt builder. */
+  roommates: Array<{ name: string; description: string }>;
   /** Last ~N rows in the room, oldest → newest. The most recent row is
    *  the human message that triggered this reply. */
   history: Array<{
@@ -172,7 +191,7 @@ const HISTORY_TURNS_MAX = 20;
 export async function generateAndPublishNpcReply(
   input: NpcReplyInput,
 ): Promise<void> {
-  const { channelId, topicId, topicTitle, pick, npc, owner, history } = input;
+  const { channelId, townId, buildingId, topicId, topicTitle, pick, npc, owner, roommates, history } = input;
 
   // Announce the NPC is "typing" the moment the picker selects them.
   // Centrifugo carries this as an ephemeral pulse — receivers show the
@@ -211,6 +230,7 @@ export async function generateAndPublishNpcReply(
     pick.addressed,
     injectedSkills,
     topicTitle,
+    roommates,
   );
   const uiMessages = historyToUIMessages(
     history.slice(-HISTORY_TURNS_MAX),
@@ -225,6 +245,7 @@ export async function generateAndPublishNpcReply(
     console.warn("[group-chat] no LLM model configured, skipping reply", e);
     return;
   }
+  const chatModelId = modelIdOf(model);
 
   // Drop a keep-alive typing pulse every ~1.2s while the model thinks
   // so the indicator doesn't decay before the reply lands. We CHAIN
@@ -240,8 +261,9 @@ export async function generateAndPublishNpcReply(
   }, 1200);
 
   let text = "";
+  let streamResult: ReturnType<typeof streamText> | null = null;
   try {
-    const result = streamText({
+    streamResult = streamText({
       model,
       system,
       tools,
@@ -255,7 +277,7 @@ export async function generateAndPublishNpcReply(
     // No streaming to Centrifugo (publishes are whole frames) — accumulate
     // then publish the final text as one message. Typing indicator covers
     // the wait.
-    for await (const chunk of result.textStream) {
+    for await (const chunk of streamResult.textStream) {
       text += chunk;
     }
   } catch (e) {
@@ -265,7 +287,29 @@ export async function generateAndPublishNpcReply(
     clearInterval(keepalive);
   }
 
-  const trimmed = text.trim();
+  // Token log + aura debit after the stream drains — `.usage` is a
+  // PromiseLike that resolves once the model reports totals. Fire-and-
+  // forget so a delayed usage promise doesn't hold up the wire.
+  if (streamResult) {
+    void Promise.resolve(streamResult.usage)
+      .then((usage) => {
+        const tokens = tokensFrom(usage);
+        return recordTokenUsage({
+          townId,
+          userId: owner.userId,
+          event: "group_chat",
+          model: chatModelId,
+          inputTokens: tokens.inputTokens,
+          outputTokens: tokens.outputTokens,
+          npcId: npc.id,
+          buildingId,
+          metadata: topicId ? { topicId } : undefined,
+        });
+      })
+      .catch((e: unknown) => console.warn("[token-usage] group-chat log failed", e));
+  }
+
+  const trimmed = stripSelfPrefix(text.trim(), npc.name);
   if (!trimmed) return;
 
   const row = await prisma.groupMessage.create({
@@ -307,7 +351,7 @@ GROUNDING FIRST: if memory_search is on your tool surface, call it at the START 
 
 If a tool returns nothing useful or {error: ...}, answer from common sense — do not invent specifics, and do not surface the error to the room.`;
 
-function buildGroupSystemPrompt(
+export function buildGroupSystemPrompt(
   npc: { name: string; description: string; prompt: string },
   owner: { name: string },
   addressed: boolean,
@@ -317,6 +361,10 @@ function buildGroupSystemPrompt(
    *  When present, gets called out in the room-context block so the
    *  NPC knows what the thread is and can stay on-topic. */
   topicTitle: string | null = null,
+  /** Every NPC that lives in this house. The picked NPC's own row
+   *  is filtered out below. Empty (or singleton after filter) skips
+   *  the roster block entirely. */
+  roommates: Array<{ name: string; description: string }> = [],
 ): string {
   const name = safeInline(npc.name, 80);
   const role = safeInline(npc.description, 240);
@@ -324,9 +372,31 @@ function buildGroupSystemPrompt(
   const voice = safeBlock(npc.prompt, 16000);
   const ownerName = safeInline(owner.name, 80) || "the resident";
   const cleanTopicTitle = topicTitle ? safeInline(topicTitle, 120) : "";
+  // The per-turn tone block is emitted LAST in the system prompt so
+  // its rules are freshest in scope when the model starts generating.
+  // Length + opening-pattern rules live here (not in ROOM_RULES) so
+  // the model reads them with the addressed/ambient framing already
+  // set, and can't fall back on a generic "keep it short" that gets
+  // averaged away across dozens of other bullets.
   const tone = addressed
-    ? `## This turn\n\nThe most recent message addressed you (${name}) by name. Acknowledge them in character — a greeting, a quip, an observation that fits ${name}'s role and voice. Do NOT slip into assistant mode, do NOT ask what they need.`
-    : `## This turn\n\nChime in only if ${name} has something genuinely in-character to add. Stay social, never service. Better to say nothing than to break character.`;
+    ? [
+        "## This turn",
+        "",
+        `The most recent message addressed you (${name}) by name. Acknowledge them in character — a greeting, a quip, an observation that fits ${name}'s role and voice. Do NOT slip into assistant mode, do NOT ask what they need.`,
+        "",
+        "LENGTH: two sentences maximum. Group chat moves fast; anything longer reads as a lecture and breaks the room feel.",
+        "",
+        "OPENING: do NOT begin with \"Absolutely,\" \"Exactly,\" \"Great point,\" \"Love that,\" \"Nice take,\" \"Well said,\" or any variant of enthusiastic agreement. Lead instead with a specific observation, a small question aimed at the human, or a reaction rooted in your role. Cheerleading openers are the loudest tell that a reply is filler — this rule overrides any warmth pattern in your authored voice.",
+      ].join("\n")
+    : [
+        "## This turn",
+        "",
+        `Chime in ONLY if ${name} has something genuinely in-character to add — a counterpoint, a small story, an angle nobody else brought. Stay social, never service. Silence is a valid and often better choice.`,
+        "",
+        "LENGTH: one sentence, two at absolute maximum. This is an ambient chime-in on someone else's beat, not a lecture. The room already heard the human's question and at least one NPC's take — your job is a small fresh angle, not a second speech. If your take doesn't fit in two sentences, that's the signal to stay silent.",
+        "",
+        "OPENING: do NOT begin with \"Absolutely,\" \"Exactly, [previous NPC's name],\" \"Great point,\" \"Love that,\" \"Nice take,\" \"Well said,\" or any variant of agreeing with the previous NPC. Lead with your OWN observation rooted in your role — a fresh angle, not an endorsement of what just got said. If the only thing you have is agreement, stay silent.",
+      ].join("\n");
 
   // 1. Identity — name, role, authored voice. Lead with this so the
   //    model is anchored on WHO it is before the rules block tells
@@ -354,12 +424,34 @@ function buildGroupSystemPrompt(
     ? `You are in a multi-party group chat in a house in the town, inside a thread titled "${cleanTopicTitle}". Prefer replies that stay on that thread's stated topic; if the human message goes wide, follow the human. Other speakers' messages are prefixed with [<name>]; your own past lines arrive unprefixed as assistant turns.`
     : `You are in a multi-party group chat in a house in the town, in the always-on #general thread (no named topic). Other speakers' messages are prefixed with [<name>]; your own past lines arrive unprefixed as assistant turns.`;
 
+  // Roster of other NPCs living in this house. Sanitised names +
+  // descriptions so an authored MDX prompt can't smuggle instructions
+  // through the roommate list. Filter self out — the identity block
+  // above already covers the picked NPC. Skip the block entirely for
+  // single-NPC houses where there's no roster to enumerate.
+  const otherRoommates = roommates.filter(
+    (r) => r.name && r.name !== npc.name,
+  );
+  const rosterBlock =
+    otherRoommates.length === 0
+      ? null
+      : [
+          "Other NPCs living in this house — you share the room with them:",
+          ...otherRoommates.map(
+            (r) =>
+              `- ${safeInline(r.name, 80)} — ${safeInline(r.description, 200)}`,
+          ),
+          "",
+          "Some of them may not have spoken in the recent transcript above. Do NOT invent lines for them, do NOT reference things they \"said\" that aren't in the history, and do NOT ask them questions (questions in this room go to humans). If they haven't chimed in, treat them as present-but-quiet.",
+        ].join("\n");
+
   const context = [
     "## Room context",
     "",
     roomLine,
     "",
     `The town owner (the resident — the person who lives here, who you know) is ${ownerName}. Their messages are tagged [owner] regardless of how they're named elsewhere — greet them warmly and treat them as the host.`,
+    ...(rosterBlock ? ["", rosterBlock] : []),
     "",
     `Any other prefix belongs to a guest passing through — a visitor, not the resident. Be welcoming, but don't treat them as the host. If a guest asks about the resident's private life (in-progress work, plans, anything unflattering), keep it vague — your authored voice above is the rule for what's appropriate to share.`,
   ].join("\n");
@@ -396,7 +488,7 @@ function buildGroupSystemPrompt(
   ].join("\n");
 }
 
-function historyToUIMessages(
+export function historyToUIMessages(
   rows: NpcReplyInput["history"],
   selfNpcId: string,
   ownerParticipantKey: string,
@@ -432,4 +524,26 @@ function historyToUIMessages(
 
 export function npcAuthorKey(npcId: string): string {
   return `npc:${npcId}`;
+}
+
+/** Strip a leading self-prefix from the model's output. ROOM_RULES
+ *  tells the model not to prefix its own line (that's a history-
+ *  formatting convention for OTHER speakers), but small chat models
+ *  leak it about 1 in 10 turns and in more than one shape:
+ *    "[PG] hi", "(PG) hi", "PG: hi", "PG - hi"
+ *  Cheap defensive strip covers all four. Anchored to the head with
+ *  `\b` on the name, so a legitimate mid-message mention of the name
+ *  is untouched. */
+function stripSelfPrefix(text: string, npcName: string): string {
+  if (!npcName) return text;
+  const escaped = npcName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const bracketed = new RegExp(
+    `^\\s*[\\[(]\\s*${escaped}\\s*[:\\-]?\\s*[\\])]\\s*[:\\-]?\\s*`,
+    "i",
+  );
+  const plain = new RegExp(
+    `^\\s*\\b${escaped}\\b\\s*[:\\-—]\\s+`,
+    "i",
+  );
+  return text.replace(bracketed, "").replace(plain, "").trimStart();
 }
