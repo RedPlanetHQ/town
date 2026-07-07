@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 
+import { InfoPageShell } from "@/ui/InfoPageShell";
+
 export const metadata: Metadata = {
   title: "Feedback",
   description:
@@ -12,50 +14,38 @@ const NEW_ISSUE_URL = "https://github.com/redplanethq/town/issues/new";
 
 export default function FeedbackPage() {
   return (
-    <main className="min-h-screen bg-black px-4 py-10 text-paper">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
-        <a
-          href="/"
-          className="self-start text-xs font-bold uppercase tracking-wider text-paper/70 hover:text-paper"
-        >
-          ← Back to city
-        </a>
+    <InfoPageShell
+      title={
+        <>
+          Help keep <span className="text-primary">town</span> alive
+        </>
+      }
+      subtitle="Town is open source and built by a small team. Three ways to help the project keep growing."
+    >
+      <FeedbackCard
+        number="01"
+        title="Join the Discord"
+        description="Talk to other players, follow updates, and help shape what gets built next."
+        href={DISCORD_INVITE}
+        linkLabel="discord.gg/YGUZcvDjUa"
+      />
 
-        <header className="flex flex-col gap-3">
-          <h1 className="text-2xl font-bold uppercase tracking-wider">
-            Help keep <span className="text-primary">town</span> alive
-          </h1>
-          <p className="text-sm uppercase tracking-wider text-paper/60">
-            Town is open source and built by a small team. Three ways to help
-            the project keep growing.
-          </p>
-        </header>
+      <FeedbackCard
+        number="02"
+        title="Star on GitHub"
+        description="A star helps more developers discover town. Takes one click."
+        href={REPO_URL}
+        linkLabel="github.com/redplanethq/town"
+      />
 
-        <FeedbackCard
-          number="01"
-          title="Join the Discord"
-          description="Talk to other players, follow updates, and help shape what gets built next."
-          href={DISCORD_INVITE}
-          linkLabel="discord.gg/YGUZcvDjUa"
-        />
-
-        <FeedbackCard
-          number="02"
-          title="Star on GitHub"
-          description="A star helps more developers discover town. Takes one click."
-          href={REPO_URL}
-          linkLabel="github.com/redplanethq/town"
-        />
-
-        <FeedbackCard
-          number="03"
-          title="Report a bug"
-          description="Found something broken? File an issue on GitHub — screenshots and repro steps help most."
-          href={NEW_ISSUE_URL}
-          linkLabel="Open new issue →"
-        />
-      </div>
-    </main>
+      <FeedbackCard
+        number="03"
+        title="Report a bug"
+        description="Found something broken? File an issue on GitHub — screenshots and repro steps help most."
+        href={NEW_ISSUE_URL}
+        linkLabel="Open new issue →"
+      />
+    </InfoPageShell>
   );
 }
 
