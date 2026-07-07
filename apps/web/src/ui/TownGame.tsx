@@ -149,19 +149,18 @@ export function TownGame(props: TownGameProps = {}) {
   const activeSlug = ownerSlug ?? visitorSlug ?? null;
   const activeName = ownerName ?? (isVisitor ? (props as { townName: string }).townName : null);
 
-  // Welcome dialogue — pops the first time the player loads this slug
-  // in the current browser session. Uses the deployed town.description
-  // when present; falls back to a generic "wander around" line so a
-  // town that hasn't authored one still gets a friendly opener.
-  // Waits for worldReady so the dialogue lands on a drawn canvas
-  // instead of the boot screen.
+  // Welcome dialogue — fires on every page load once the scene is
+  // drawn. Uses the deployed town.description when present; falls back
+  // to a generic "wander around" line so a town that hasn't authored
+  // one still gets a friendly opener. We use a ref to guard against
+  // React StrictMode's double-mount in dev firing this twice; a real
+  // page reload wipes the ref and the dialogue reappears.
+  const welcomeFiredRef = useRef(false);
   useEffect(() => {
     if (!activeSlug || !activeName) return;
     if (!worldReady) return;
-    if (typeof window === "undefined") return;
-    const key = `town-welcome:${activeSlug}`;
-    if (window.sessionStorage.getItem(key)) return;
-    window.sessionStorage.setItem(key, "1");
+    if (welcomeFiredRef.current) return;
+    welcomeFiredRef.current = true;
     const description =
       (townDescription && townDescription.trim()) ||
       `Wander around ${activeName}, meet the residents, and see what they're up to.`;
