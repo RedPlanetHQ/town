@@ -22,6 +22,7 @@ import { GRASS_HEX, autotile9Slice } from "../../lib/plot-render";
 import { theme } from "../theme";
 import { makePlayer, type Tile } from "../entities/player";
 import { attachRemotePlayers } from "../entities/remotePlayer";
+import { isSleeping as auraIsSleeping } from "../aura";
 import { getSession, onSessionChange } from "../auth";
 import { ui } from "../../ui/store";
 import { isCinematicLocked, registerWorldBounds } from "../cinematic";
@@ -423,6 +424,28 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
         });
         const owner = doorOwner.get(tile.tx + "," + tile.ty);
         if (!owner) return;
+        // Sleeping gate — when the town's aura is under the threshold,
+        // the residents are "asleep". We refuse building entry with a
+        // bouncer-style dialogue instead of transitioning into an
+        // interior whose NPCs can't respond anyway (server-side chat
+        // routes 423 on aura < threshold).
+        if (auraIsSleeping()) {
+          ui.openDialogue({
+            key: "town-sleeping",
+            speaker: "Bouncer",
+            accent: PALETTE.h240,
+            lines: [
+              "Kicked out.",
+              "Everyone's asleep.",
+              "Come back when the vibes recover.",
+            ],
+            action: {
+              label: "OK",
+              onPress: () => ui.closeDialogue(),
+            },
+          });
+          return;
+        }
         // Route into the legacy interior scene by category. Future: read
         // owner.variantId, look up MDX-driven interior.
         const key = owner.category as

@@ -11,6 +11,7 @@ import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
 import { notFound } from "next/navigation";
 
+import { creditFirstVisitAura } from "@/lib/aura";
 import { OWNER_DEFAULT_CHARACTER } from "@/lib/characters";
 import { prisma } from "@/lib/db";
 import { guestParticipantKey, userParticipantKey } from "@/lib/participant";
@@ -162,6 +163,15 @@ export default async function TownPage({
     const subjectKey = session
       ? userParticipantKey(session.user.id)
       : guestParticipantKey(visitor.g);
+    // First-ever visit from this subject → credit the town +50 aura
+    // (AURA_GUEST_CREDIT) BEFORE recordTownActivity writes the visit
+    // row (the check uses TownActivity to detect "first time").
+    // Fire-and-forget.
+    void creditFirstVisitAura({
+      townId: town.id,
+      townSlug: town.slug,
+      subjectKey,
+    });
     void recordTownActivity({
       townSlug: town.slug,
       kind: "visit",

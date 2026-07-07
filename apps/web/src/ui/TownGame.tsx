@@ -8,6 +8,7 @@ import { startSuggestionsPoller } from "../game/suggestions";
 import { startWorkspaceSync } from "../game/workspace";
 import { startNpcsSync, getNpcCount, onNpcsChange, refreshNpcs } from "../game/npcs";
 import { setOwnerTownSlug, setViewerTownSlug } from "../game/plotClient";
+import { setAura as publishAura } from "../game/aura";
 import { setPlayerCharacter } from "../game/character";
 import {
   startRealtime,
@@ -404,14 +405,14 @@ function PopulationBadge({
     void refreshNpcs();
     return onNpcsChange(update);
   }, []);
-  // Fetch aura once on mount, then refresh on a long interval so the
-  // hourly cron tick eventually surfaces without a page reload. We
-  // don't poll fast — the meter only moves ±50/hour from the cron and
-  // by TURN_COST during owner creator turns, neither of which need
-  // sub-minute latency.
+  // Poll aura on a 30s cadence so LLM-driven drains surface quickly
+  // enough for the sleeping overlay to react. Also publishes to the
+  // shared game/aura store so the interior scene (💤 above each NPC)
+  // consumes the same value.
   useEffect(() => {
     if (!townSlug) {
       setAura(null);
+      publishAura(null);
       return;
     }
     let cancelled = false;
@@ -421,13 +422,16 @@ function PopulationBadge({
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) return;
         const body = (await res.json()) as Aura;
-        if (!cancelled) setAura({ current: body.current, max: body.max });
+        if (cancelled) return;
+        const next = { current: body.current, max: body.max };
+        setAura(next);
+        publishAura(next);
       } catch {
         // Network blip — keep the last value.
       }
     };
     void fetchOnce();
-    const id = window.setInterval(fetchOnce, 5 * 60 * 1000);
+    const id = window.setInterval(fetchOnce, 30 * 1000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
