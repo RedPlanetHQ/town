@@ -679,8 +679,7 @@ const INTERIORS: Record<BuildingKey, InteriorSpec> = {
     //
     // Furniture (all props are 32×48 = 2 tiles wide × 3 tall, drawn with
     // feet on the named row):
-    //   • Dual-monitor workstation (cols 7-8, feet row 5) — Tasks board.
-    //     Player approaches from (7, 6) below and presses SPACE.
+    //   • Dual-monitor workstation (cols 7-8, feet row 5).
     //   • Tall plant (col 2, feet row 4) on the back wall.
     //   • Snake plant (col 13, feet row 4) on the back wall.
     //   • Filing cabinet (col 4, feet row 4) on the back wall.
@@ -704,9 +703,9 @@ const INTERIORS: Record<BuildingKey, InteriorSpec> = {
     //   row 4 : cream desk surface
     //   row 5 : orange chair (where the NPC visually sits)
     //
-    // Middle workstation uses the dual-monitor variant — it's the most
-    // prominent of the three so it reads as the Tasks board. Two plants
-    // fill the gaps between workstations.
+    // Middle workstation uses the dual-monitor variant so it reads as
+    // the centerpiece of the room. Two plants fill the gaps between
+    // workstations.
     //
     // The office worker NPC sprite + interactable land here via the plot
     // slot merge in registerInteriorScene — no static entry here.
@@ -719,20 +718,7 @@ const INTERIORS: Record<BuildingKey, InteriorSpec> = {
       { tx: 5,  ty: 4, w: 2, h: 3, sprite: "office_plant_tall",       spritePxH: 48 },
       { tx: 10, ty: 4, w: 2, h: 3, sprite: "office_plant_snake",      spritePxH: 48 },
     ],
-    interacts: [
-      {
-        // Tasks board on the middle (dual-monitor) workstation. Player
-        // approaches from south at (7, 6) and presses SPACE. The
-        // workstation footprint covers cols 7-8 rows 2-5, but the
-        // chair tile itself (7, 5) is what we tag for interaction.
-        // Direct trigger — opens the tasks overlay immediately.
-        tx: 7, ty: 5,
-        key: "office-tasks",
-        label: "Tasks",
-        accent: PALETTE.h240,
-        onTrigger: () => ui.openTasks(),
-      },
-    ],
+    interacts: [],
   },
   LIBRARY: {
     draw: drawLibrary,
@@ -1267,7 +1253,7 @@ export function registerInteriorScene(k: KAPLAYCtx) {
     };
 
     k.onUpdate(() => {
-      // Modal-style surfaces (panel, explorer, tasks, chat) freeze the
+      // Modal-style surfaces (panel, explorer, chat) freeze the
       // world entirely — skip prompt logic while one is open. We
       // intentionally do NOT clear `activeLeaveKey` here so a chat that
       // opens from the NPC dialogue's action button keeps the walk-away
@@ -1365,7 +1351,6 @@ export function registerInteriorScene(k: KAPLAYCtx) {
       ui.setPrompt(null);
       ui.closePanel();
       ui.closeExplorer();
-      ui.closeTasks();
       // Preserve the guest CTA across scene transitions — it's the one
       // persistent surface guests see and is reopened on every entry.
       if (ui.getState().dialogue?.key !== GUEST_CTA_KEY) {

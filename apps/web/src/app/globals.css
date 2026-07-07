@@ -505,7 +505,7 @@ body {
 }
 
 /* ============================================================================
- * Modal pop-in — game-feel entrance for Panel / Explorer / Tasks overlays.
+ * Modal pop-in — game-feel entrance for Panel / Explorer overlays.
  *
  * Backdrop fades in quickly; the card scales + slides in with a slight
  * overshoot (cubic-bezier back-out) so it lands with a satisfying snap
