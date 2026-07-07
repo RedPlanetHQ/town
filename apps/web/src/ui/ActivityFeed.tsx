@@ -60,7 +60,7 @@ export function ActivityFeed({ items, status }: ActivityFeedProps) {
 
   return (
     <div
-      className="nb-card-dark pointer-events-auto absolute left-3 z-40 flex flex-col"
+      className="nb-card-dark pointer-events-auto absolute right-3 z-40 flex flex-col"
       style={{
         bottom: 36,
         width: 380,

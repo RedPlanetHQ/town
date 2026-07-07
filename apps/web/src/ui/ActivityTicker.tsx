@@ -55,7 +55,7 @@ export function ActivityTicker({ items }: { items: ActivityRow[] }) {
 
   if (visible.length === 0) {
     return (
-      <div className="flex h-7 items-center text-xs uppercase tracking-wider text-paper/40">
+      <div className="flex h-7 items-center justify-end text-xs uppercase tracking-wider text-paper/40">
         No activity yet
       </div>
     );
@@ -64,7 +64,7 @@ export function ActivityTicker({ items }: { items: ActivityRow[] }) {
   const row = visible[Math.min(index, visible.length - 1)]!;
   return (
     <div
-      className="flex items-center gap-2"
+      className="flex items-center justify-end gap-2"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       aria-live="polite"
