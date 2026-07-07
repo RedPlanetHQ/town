@@ -1276,21 +1276,24 @@ export function registerInteriorScene(k: KAPLAYCtx) {
         return;
       }
 
-      // NPCs hide their prompt while their dialogue is on-screen — the
-      // dialogue itself is the active surface, no need for the floating
-      // SPACE pill underneath it.
-      if (it.onLeave && ui.getState().dialogue) {
+      // NPC interactables (marked by having `onLeave`) auto-open their
+      // dialogue on proximity — walking up IS the trigger, no SPACE
+      // press required for the greeting. SPACE inside the dialogue
+      // still fires the primary action (opens the chat). The floating
+      // SPACE pill is suppressed entirely: the dialogue is a better
+      // affordance and doubling both looked noisy.
+      if (it.onLeave) {
         ui.setPrompt(null);
-        return;
-      }
-
-      // While the group-chat overlay is open, suppress NPC SPACE
-      // prompts so the player can't accidentally start a 1-1 chat on
-      // top of an open room. Non-NPC interactables (panels, desks)
-      // still show their prompt — only NPCs are gated. The bottom-
-      // right group-chat panel hints how to close it (ESC or G).
-      if (it.onLeave && isGroupChatOverlayOpen()) {
-        ui.setPrompt(null);
+        // Group-chat overlay wins — don't stack a 1-1 dialogue on top
+        // of an open room. Same gate the SPACE handler uses so UX is
+        // symmetric: no auto-open, no manual trigger either.
+        if (isGroupChatOverlayOpen()) return;
+        // Already open for this NPC. Nothing to do.
+        if (activeLeaveKey === it.key) return;
+        if (it.onTrigger) {
+          activeLeaveKey = it.key;
+          it.onTrigger();
+        }
         return;
       }
 
