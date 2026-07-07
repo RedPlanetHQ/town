@@ -440,10 +440,11 @@ function drawLibrary(k: KAPLAYCtx, w: number, h: number) {
   }
 }
 
-// Generic "say hi → offer to talk → stream chat" flow for every NPC that
-// doesn't have a special path. The dialogue surface shows
-// "Hi, I'm {name}. {description}" with a [Talk to {name}] action that
-// hands off to <Chat /> via ui.openChat().
+// SPACE on an NPC opens the chat directly — no intermediate greeting
+// dialogue for signed-in players (or guests touring a real town). The
+// only case that still goes through the dialogue surface is the fully
+// anonymous viewer on the public demo, who needs the "sign in with
+// CORE" CTA before they can talk.
 function openNpcGreeting(opts: {
   /** npcId for the chat endpoint — Npc.id, system NPC id, or a buildingId. */
   npcId: string;
@@ -483,27 +484,13 @@ function openNpcGreeting(opts: {
     });
     return;
   }
-  ui.openDialogue({
-    key: `npc-${opts.npcId}-greet`,
+  ui.openChat({
+    npcId: opts.npcId,
     speaker: opts.name,
+    description: opts.description,
     accent: opts.accent,
-    lines: [`Hi, I'm ${opts.name}.`, opts.description],
-    action: {
-      label: `Talk to ${opts.name}`,
-      onPress: () =>
-        ui.openChat({
-          npcId: opts.npcId,
-          speaker: opts.name,
-          description: opts.description,
-          accent: opts.accent,
-          mode: "direct",
-          ...(opts.chatApi ? { chatApi: opts.chatApi } : {}),
-        }),
-    },
-    secondary: {
-      label: "Not now",
-      onPress: () => ui.closeDialogue(),
-    },
+    mode: "direct",
+    ...(opts.chatApi ? { chatApi: opts.chatApi } : {}),
   });
 }
 
