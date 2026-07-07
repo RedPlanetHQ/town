@@ -17,7 +17,6 @@ import {
   getViewerTownSlug,
   isViewerOwner,
 } from "../plotClient";
-import { getWorkspace } from "../workspace";
 import {
   isGroupChatOverlayOpen,
   mountGroupChatForScene,
@@ -915,14 +914,6 @@ export function registerInteriorScene(k: KAPLAYCtx) {
     );
     const isDemoGuest = !getSession() && !getViewerTownSlug();
     const fallback = DEMO_NPC_FALLBACK[opts.building];
-    // HOME's first slot is the world runner — named after the resident's
-    // CORE workspace ("Hudson's town" → NPC introduces themselves as
-    // Hudson). We only apply the override on the default slot ("") so
-    // additional HOME-slot NPCs keep their authored names.
-    const homeWorkspaceName =
-      opts.building === "HOME"
-        ? getWorkspace()?.name?.trim() || null
-        : null;
 
     interface Resolved {
       plotNpc: (typeof plotNpcs)[number];
@@ -933,13 +924,12 @@ export function registerInteriorScene(k: KAPLAYCtx) {
       const slotId = plotNpc.slotId ?? "";
       const row = getNpcByBuildingAndSlot(opts.buildingId, slotId);
       const isDefaultSlot = slotId === "";
-      const workspaceOverride = isDefaultSlot ? homeWorkspaceName : null;
       if (row) {
         resolved.push({
           plotNpc,
           info: {
             id: row.id,
-            name: workspaceOverride ?? row.name,
+            name: row.name,
             description: row.description,
           },
         });
@@ -950,7 +940,7 @@ export function registerInteriorScene(k: KAPLAYCtx) {
           plotNpc,
           info: {
             id: opts.buildingId,
-            name: workspaceOverride ?? fallback.name,
+            name: fallback.name,
             description: fallback.description,
           },
         });
@@ -1120,7 +1110,12 @@ export function registerInteriorScene(k: KAPLAYCtx) {
     // same scene id; the overworld filters us out so the owner doesn't
     // see a ghost at the front door from the stale last-overworld tile
     // the heartbeat would otherwise keep re-publishing.
-    const sceneId = `interior:${opts.building}`;
+    //
+    // Scene id is keyed on the PlotBuilding.id (unique per instance), NOT
+    // the category — otherwise two buildings of the same category (e.g.
+    // two STOREs) would pool their occupants into one virtual room even
+    // though each has its own physical interior on screen.
+    const sceneId = `interior:${opts.buildingId}`;
     setLocalScene(sceneId);
 
     // Per-house group chat. Mount is a no-op when the building didn't
@@ -1206,15 +1201,32 @@ export function registerInteriorScene(k: KAPLAYCtx) {
 
     const nearestInteract = (): Interactable | null => {
       const pt = player.tile;
-      // Strict cardinal adjacency for every interactable, including NPCs.
-      // The player has to actually walk up next to a tile (4-neighborhood)
-      // before the floating SPACE prompt appears.
+      // Panel interactables (scratchpad, phone booth, price machine, …)
+      // keep strict cardinal adjacency — the prompt should only appear
+      // when the player is literally standing next to the furniture.
+      //
+      // NPC interactables (marked by `onLeave`) accept up to Manhattan 2
+      // so a plot NPC that sits behind a prop (e.g. the office worker in
+      // the workstation chair at cols 7-8, rows 2-5) still triggers even
+      // when the workstation footprint pushes the player one tile south
+      // of the strict-adjacent tile. Multiple NPCs in range → the
+      // closest one wins.
+      let npcCandidate: Interactable | null = null;
+      let npcBestDist = Infinity;
       for (const it of spec.interacts ?? []) {
         const dx = Math.abs(pt.tx - it.tx);
         const dy = Math.abs(pt.ty - it.ty);
-        if (dx + dy === 1) return it;
+        const dist = dx + dy;
+        if (it.onLeave) {
+          if (dist >= 1 && dist <= 2 && dist < npcBestDist) {
+            npcCandidate = it;
+            npcBestDist = dist;
+          }
+          continue;
+        }
+        if (dist === 1) return it;
       }
-      return null;
+      return npcCandidate;
     };
 
     const resolveLabel = (it: Interactable): string =>
