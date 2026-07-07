@@ -28,6 +28,7 @@ export const metadata: Metadata = {
 type Row = {
   slug: string;
   name: string;
+  description: string | null;
   shareCode: string;
   ownerName: string;
   aura: number;
@@ -41,6 +42,7 @@ async function loadRows(): Promise<Row[]> {
     select: {
       slug: true,
       name: true,
+      description: true,
       shareCode: true,
       owner: { select: { name: true } },
       aura: { select: { current: true } },
@@ -55,6 +57,7 @@ async function loadRows(): Promise<Row[]> {
       return {
         slug: t.slug,
         name: t.name,
+        description: t.description,
         shareCode: t.shareCode,
         ownerName: t.owner.name,
         aura,
@@ -126,10 +129,15 @@ function LeaderboardRow({ rank, row }: { rank: number; row: Row }) {
   // scale that would fight the existing palette.
   const rankColor = rank === 1 ? "text-primary" : "text-paper/50";
 
+  // Preserve the owner's original casing on the description line —
+  // the rest of the row is uppercase tracking, but a description is
+  // prose. Lower-case with normal tracking reads as content, not chrome.
+  const description = row.description?.trim();
+
   return (
     <Link
       href={`/${row.slug}?invite_code=${row.shareCode}`}
-      className="grid grid-cols-[36px_1fr_80px_80px_100px] items-center gap-3 border-b border-paper/10 px-3 py-2.5 text-xs font-bold uppercase tracking-wider last:border-b-0 hover:bg-white/5"
+      className="grid grid-cols-[36px_1fr_80px_80px_100px] items-center gap-3 border-b border-paper/10 px-3 py-3 text-xs font-bold uppercase tracking-wider last:border-b-0 hover:bg-white/5"
     >
       <span className={`font-mono ${rankColor}`}>{rank}</span>
       <span className="flex min-w-0 items-center gap-3">
@@ -139,11 +147,18 @@ function LeaderboardRow({ rank, row }: { rank: number; row: Row }) {
         >
           {row.name.slice(0, 1).toUpperCase()}
         </span>
-        <span className="flex min-w-0 flex-col">
-          <span className="truncate text-sm text-paper">{row.name}</span>
-          <span className="truncate text-[10px] uppercase tracking-wider text-paper/50">
-            @{row.ownerName}
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-sm text-paper">{row.name}</span>
+            <span className="truncate text-[10px] uppercase tracking-wider text-paper/50">
+              @{row.ownerName}
+            </span>
           </span>
+          {description ? (
+            <span className="truncate text-[11px] font-medium normal-case tracking-normal text-paper/55">
+              {description}
+            </span>
+          ) : null}
         </span>
       </span>
       <span className="text-right font-mono text-paper/70">{row.aura}</span>
