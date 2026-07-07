@@ -60,6 +60,11 @@ model Town {
   // visitor gate ("You're about to enter Harshith's Town") and used as the
   // default panel title.
   name          String
+  // Optional one-paragraph pitch shown in the welcome dialogue the first
+  // time a visitor loads the town. Deployed from `town.json` — null when
+  // the owner hasn't authored one, in which case the welcome dialogue
+  // stays quiet.
+  description   String?
   ownerId       String
   owner         User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   // 6-char base32 code rotated via the Share modal's Reset button.

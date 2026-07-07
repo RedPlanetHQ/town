@@ -151,6 +151,7 @@ export default async function TownPage({
         ownerCharacter={owner?.character ?? OWNER_DEFAULT_CHARACTER}
         townSlug={town.slug}
         townName={town.name}
+        townDescription={town.description ?? null}
       />
     );
   }
@@ -185,6 +186,7 @@ export default async function TownPage({
         viewerMode="visitor"
         townSlug={town.slug}
         townName={town.name}
+        townDescription={town.description ?? null}
         visitorName={visitor.n}
         visitorCharacter={visitor.ch}
         ownerParticipantKey={userParticipantKey(town.ownerId)}

@@ -36,6 +36,10 @@ import {
 } from "../shared/town-io.js";
 
 interface PostBody {
+  /** Owner's welcome pitch — surfaces as the first-load dialogue on
+   *  /{slug}. Passed through opaquely; absent leaves the stored
+   *  description alone. */
+  description?: string;
   buildings: Array<{
     id: string;
     plotKey: string;
@@ -270,6 +274,7 @@ export async function runDeployQuiet(
 
   const hasCatalog = (town.tags && town.tags.length > 0) || items.length > 0;
   const body: PostBody = {
+    ...(town.description !== undefined ? { description: town.description } : {}),
     buildings: town.buildings.map((b) => ({
       id: b.id,
       plotKey: b.plotKey,
@@ -405,6 +410,7 @@ export async function runDeploy(opts: RunDeployOpts): Promise<void> {
   // 2. POST the consolidated payload.
   const hasCatalog = (town.tags && town.tags.length > 0) || items.length > 0;
   const body: PostBody = {
+    ...(town.description !== undefined ? { description: town.description } : {}),
     buildings: town.buildings.map((b) => ({
       id: b.id,
       plotKey: b.plotKey,

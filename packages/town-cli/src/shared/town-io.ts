@@ -118,6 +118,10 @@ export interface TownJson {
    *  human opening town.json immediately sees which town this folder is
    *  bound to. */
   id?: string;
+  /** One-paragraph welcome pitch shown to the first-time visitor. Free-
+   *  form text; keep it short (2-3 sentences). Absent → the welcome
+   *  dialogue stays quiet. */
+  description?: string;
   buildings: TownBuilding[];
   /** May be omitted at the top level — deploy looks under
    *  `customPlots/<id>/plot.json` for the canonical definitions and

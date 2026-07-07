@@ -171,6 +171,10 @@ const PostBodySchema = z.object({
   // Absent → leave the Town.catalogJson row alone (so a partial deploy
   // doesn't wipe the catalog). Present (even with empty arrays) → replace.
   catalog: TownCatalogSchema.optional(),
+  // Owner's welcome pitch. Cap length so it fits comfortably in the
+  // first-load dialogue without wrapping into a wall of text. Absent
+  // → leave the stored description alone. Empty string → clear it.
+  description: z.string().max(500).optional(),
 });
 
 export async function GET(req: Request) {
@@ -319,6 +323,14 @@ export async function POST(req: Request) {
         await tx.town.update({
           where: { id: townId },
           data: { catalogJson: parsed.catalog as unknown as object },
+        });
+      }
+      if (parsed.description !== undefined) {
+        // Empty string clears the description; any non-empty string
+        // replaces it. Absent → leave the stored value alone.
+        await tx.town.update({
+          where: { id: townId },
+          data: { description: parsed.description || null },
         });
       }
       // Flip back to active inside the same tx — a crashed apply leaves

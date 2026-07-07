@@ -76,11 +76,16 @@ export type TownGameProps =
       // server-side (the old /api/towns/me path returned the OLDEST
       // town, which was wrong for multi-town owners).
       townName?: string;
+      /** Owner's welcome pitch — surfaces as the first-load dialogue.
+       *  Null when the owner hasn't authored one; the dialogue falls
+       *  back to a generic "welcome to <town>" line. */
+      townDescription?: string | null;
     }
   | {
       viewerMode: "visitor";
       townSlug: string;
       townName: string;
+      townDescription?: string | null;
       visitorName: string;
       visitorCharacter: string;
       // Owner's participantKey (e.g. "user:<userId>"). Used by the
@@ -138,6 +143,39 @@ export function TownGame(props: TownGameProps = {}) {
   const visitorCharacter = isVisitor
     ? (props as { visitorCharacter: string }).visitorCharacter
     : undefined;
+  const townDescription = (
+    props as { townDescription?: string | null }
+  ).townDescription;
+  const activeSlug = ownerSlug ?? visitorSlug ?? null;
+  const activeName = ownerName ?? (isVisitor ? (props as { townName: string }).townName : null);
+
+  // Welcome dialogue — pops the first time the player loads this slug
+  // in the current browser session. Uses the deployed town.description
+  // when present; falls back to a generic "wander around" line so a
+  // town that hasn't authored one still gets a friendly opener.
+  // Waits for worldReady so the dialogue lands on a drawn canvas
+  // instead of the boot screen.
+  useEffect(() => {
+    if (!activeSlug || !activeName) return;
+    if (!worldReady) return;
+    if (typeof window === "undefined") return;
+    const key = `town-welcome:${activeSlug}`;
+    if (window.sessionStorage.getItem(key)) return;
+    window.sessionStorage.setItem(key, "1");
+    const description =
+      (townDescription && townDescription.trim()) ||
+      `Wander around ${activeName}, meet the residents, and see what they're up to.`;
+    ui.openDialogue({
+      key: `town-welcome-${activeSlug}`,
+      speaker: activeName,
+      accent: PALETTE.h240,
+      lines: [description],
+      action: {
+        label: "Explore",
+        onPress: () => ui.closeDialogue(),
+      },
+    });
+  }, [activeSlug, activeName, townDescription, worldReady]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
