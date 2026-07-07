@@ -10,6 +10,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 import { prisma } from "@/lib/db";
+import { AuraBar } from "@/ui/AuraBar";
 import { InfoPageShell } from "@/ui/InfoPageShell";
 
 // Weight applied to distinct-visitor count when ranking towns. One
@@ -32,7 +33,7 @@ type Row = {
   shareCode: string;
   ownerName: string;
   aura: number;
-  visitors: number;
+  auraMax: number;
   score: number;
 };
 
@@ -45,7 +46,7 @@ async function loadRows(): Promise<Row[]> {
       description: true,
       shareCode: true,
       owner: { select: { name: true } },
-      aura: { select: { current: true } },
+      aura: { select: { current: true, max: true } },
       _count: { select: { visits: true } },
     },
   });
@@ -53,6 +54,7 @@ async function loadRows(): Promise<Row[]> {
   return towns
     .map((t) => {
       const aura = t.aura?.current ?? 0;
+      const auraMax = t.aura?.max ?? 1000;
       const visitors = t._count.visits;
       return {
         slug: t.slug,
@@ -61,7 +63,7 @@ async function loadRows(): Promise<Row[]> {
         shareCode: t.shareCode,
         ownerName: t.owner.name,
         aura,
-        visitors,
+        auraMax,
         score: aura + SCORE_VISITOR_WEIGHT * visitors,
       };
     })
@@ -109,11 +111,9 @@ function LeaderboardTable({ rows }: { rows: Row[] }) {
       className="nb-card-dark flex flex-col p-2"
       style={{ borderColor: "rgba(246, 243, 234, 0.12)" }}
     >
-      <div className="grid grid-cols-[36px_1fr_80px_80px_100px] items-center gap-3 border-b-2 border-paper/15 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-paper/50">
+      <div className="grid grid-cols-[36px_1fr_100px] items-center gap-3 border-b-2 border-paper/15 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-paper/50">
         <span>#</span>
         <span>Town</span>
-        <span className="text-right">Aura</span>
-        <span className="text-right">Visits</span>
         <span className="text-right">Score</span>
       </div>
       {rows.map((row, i) => (
@@ -137,7 +137,7 @@ function LeaderboardRow({ rank, row }: { rank: number; row: Row }) {
   return (
     <Link
       href={`/${row.slug}?invite_code=${row.shareCode}`}
-      className="grid grid-cols-[36px_1fr_80px_80px_100px] items-center gap-3 border-b border-paper/10 px-3 py-3 text-xs font-bold uppercase tracking-wider last:border-b-0 hover:bg-white/5"
+      className="grid grid-cols-[36px_1fr_100px] items-center gap-3 border-b border-paper/10 px-3 py-3 text-xs font-bold uppercase tracking-wider last:border-b-0 hover:bg-white/5"
     >
       <span className={`font-mono ${rankColor}`}>{rank}</span>
       <span className="flex min-w-0 items-center gap-3">
@@ -148,8 +148,9 @@ function LeaderboardRow({ rank, row }: { rank: number; row: Row }) {
           {row.name.slice(0, 1).toUpperCase()}
         </span>
         <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="flex min-w-0 items-baseline gap-2">
+          <span className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm text-paper">{row.name}</span>
+            <AuraBar current={row.aura} max={row.auraMax} width={48} />
             <span className="truncate text-[10px] uppercase tracking-wider text-paper/50">
               @{row.ownerName}
             </span>
@@ -161,8 +162,6 @@ function LeaderboardRow({ rank, row }: { rank: number; row: Row }) {
           ) : null}
         </span>
       </span>
-      <span className="text-right font-mono text-paper/70">{row.aura}</span>
-      <span className="text-right font-mono text-paper/70">{row.visitors}</span>
       <span className="text-right font-mono text-paper">
         {row.score.toLocaleString()}
       </span>
