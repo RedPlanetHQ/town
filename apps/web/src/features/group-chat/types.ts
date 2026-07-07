@@ -73,10 +73,20 @@ export interface GroupTopicCreatedWire {
   topic: GroupTopicRow;
 }
 
+/** Broadcast when the town owner deletes a topic. Every open sidebar
+ *  drops the row instantly instead of waiting for the 15s expired-topic
+ *  sweep. Rooms with the deleted topic active fall back to #general. */
+export interface GroupTopicDeletedWire {
+  type: "topic-deleted";
+  channelId: string;
+  topicId: string;
+}
+
 export type GroupChatWire =
   | GroupMessageWire
   | GroupTypingWire
-  | GroupTopicCreatedWire;
+  | GroupTopicCreatedWire
+  | GroupTopicDeletedWire;
 
 /** Shape of a message row returned by the history endpoint. */
 export interface GroupMessageRow {

@@ -21,10 +21,12 @@ import {
 import {
   closeRoom,
   createTopic,
+  deleteTopic,
   postMessage,
   publishTyping,
   switchTopic,
 } from "../client/channel";
+import { getSelfIdentity } from "@/game/realtime";
 import { useGroupChatState } from "../client/useGroupChatState";
 import {
   selectActiveMessages,
@@ -95,6 +97,11 @@ export function GroupChatSurface() {
   };
 
   const ownerKey = state.room?.ownerParticipantKey ?? "";
+  // Same-tab identity — used to gate the owner-only "delete topic" ×.
+  // The server enforces on DELETE regardless, but hiding the button for
+  // non-owners avoids offering an action they can't take.
+  const selfKey = getSelfIdentity()?.participantKey ?? "";
+  const viewerIsOwner = ownerKey !== "" && ownerKey === selfKey;
   const activeTopic = state.topics.find((t) => t.id === state.activeTopicId);
   const activeTitle =
     state.activeTopicId === null ? "general" : activeTopic?.title ?? "topic";
@@ -128,6 +135,7 @@ export function GroupChatSurface() {
           topics={state.topics}
           activeTopicId={state.activeTopicId}
           unreadByTopic={state.unreadByTopic}
+          viewerIsOwner={viewerIsOwner}
         />
 
         <div className="flex flex-1 flex-col gap-2 p-3">
@@ -194,10 +202,12 @@ function TopicSidebar({
   topics,
   activeTopicId,
   unreadByTopic,
+  viewerIsOwner,
 }: {
   topics: GroupTopicRow[];
   activeTopicId: string | null;
   unreadByTopic: Map<string, number>;
+  viewerIsOwner: boolean;
 }) {
   const [showNew, setShowNew] = useState(false);
   const [title, setTitle] = useState("");
@@ -278,6 +288,13 @@ function TopicSidebar({
           active={activeTopicId === t.id}
           unread={unreadByTopic.get(t.id) ?? 0}
           onClick={() => switchTopic(t.id)}
+          onDelete={
+            viewerIsOwner
+              ? () => {
+                  void deleteTopic(t.id);
+                }
+              : undefined
+          }
         />
       ))}
 
@@ -317,38 +334,60 @@ function TopicRow({
   active,
   unread,
   onClick,
+  onDelete,
 }: {
   label: string;
   subline?: string;
   active: boolean;
   unread: number;
   onClick: () => void;
+  /** Owner-only affordance — omit to hide the × icon. Only user topics
+   *  pass this in; #general never does. */
+  onDelete?: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <div
       className={
-        "flex flex-col items-start gap-0 border-2 px-1.5 py-1 text-left transition " +
+        "group/topic relative flex items-stretch border-2 transition " +
         (active
           ? "border-paper/50 bg-white/10 text-paper"
           : "border-transparent text-paper/80 hover:bg-white/5")
       }
     >
-      <div className="flex w-full items-center justify-between gap-2">
-        <span className="truncate text-xs font-bold">#{label}</span>
-        {unread > 0 && !active ? (
-          <span className="rounded-sm bg-paper px-1 text-[10px] font-bold text-ink">
-            {unread > 9 ? "9+" : unread}
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex flex-1 flex-col items-start gap-0 px-1.5 py-1 text-left"
+      >
+        <div className="flex w-full items-center justify-between gap-2">
+          <span className="truncate text-xs font-bold">#{label}</span>
+          {unread > 0 && !active ? (
+            <span className="rounded-sm bg-paper px-1 text-[10px] font-bold text-ink">
+              {unread > 9 ? "9+" : unread}
+            </span>
+          ) : null}
+        </div>
+        {subline ? (
+          <span className="text-[10px] uppercase tracking-wider text-paper/50">
+            {subline}
           </span>
         ) : null}
-      </div>
-      {subline ? (
-        <span className="text-[10px] uppercase tracking-wider text-paper/50">
-          {subline}
-        </span>
+      </button>
+      {onDelete ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          title="Delete topic (owner)"
+          aria-label={`Delete topic ${label}`}
+          className="flex items-center px-1.5 text-sm leading-none text-paper/40 opacity-0 transition hover:text-red-400 focus:opacity-100 group-hover/topic:opacity-100"
+        >
+          ×
+        </button>
       ) : null}
-    </button>
+    </div>
   );
 }
 

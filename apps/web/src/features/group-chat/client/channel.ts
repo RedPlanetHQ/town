@@ -257,6 +257,43 @@ export function switchTopic(topicId: string | null): void {
   groupChatStore.switchTopic(topicId);
 }
 
+/** Delete a topic. Owner-only server-side; UI should only expose the
+ *  affordance when the viewer is the town owner. Instant local removal
+ *  via the topic-deleted wire the server publishes back to us; we don't
+ *  optimistically remove here so a 403 leaves the sidebar untouched. */
+export async function deleteTopic(
+  topicId: string,
+): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  const state = groupChatStore.getState();
+  if (!state.room || state.status !== "ready") {
+    return { ok: false, error: "room-not-ready", status: 0 };
+  }
+  let res: Response;
+  try {
+    res = await fetch(
+      `/api/group-chat/${encodeURIComponent(state.room.slug)}/${encodeURIComponent(state.room.buildingId)}/topics/${encodeURIComponent(topicId)}`,
+      { method: "DELETE" },
+    );
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "network",
+      status: 0,
+    };
+  }
+  if (!res.ok) {
+    let error = String(res.status);
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) error = body.error;
+    } catch {
+      // ignore
+    }
+    return { ok: false, error, status: res.status };
+  }
+  return { ok: true };
+}
+
 /** Create a new topic in the current room. Server publishes a
  *  topic-created wire that lands in every open sidebar (including
  *  ours), so we don't add the topic locally — we just switch to it
@@ -340,5 +377,7 @@ function handleWire(data: unknown) {
     });
   } else if (wire.type === "topic-created") {
     groupChatStore.addTopic(wire.topic);
+  } else if (wire.type === "topic-deleted") {
+    groupChatStore.removeTopic(wire.topicId);
   }
 }

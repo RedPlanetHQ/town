@@ -169,6 +169,15 @@ export const groupChatStore = {
     if (state.topics.some((t) => t.id === topic.id)) return;
     set({ topics: [topic, ...state.topics] });
   },
+  removeTopic(topicId: string) {
+    if (!state.topics.some((t) => t.id === topicId)) return;
+    const topics = state.topics.filter((t) => t.id !== topicId);
+    // If the deleted topic was the active one, fall back to #general so
+    // the composer stays live for everyone with the panel open.
+    const activeTopicId =
+      state.activeTopicId === topicId ? null : state.activeTopicId;
+    set({ topics, activeTopicId });
+  },
   /** Drop expired topics from the sidebar. Called by a cheap interval
    *  the surface owns. If the active topic just expired, fall back
    *  to #general so the composer stays live. */
