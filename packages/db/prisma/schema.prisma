@@ -44,6 +44,7 @@ model User {
   suggestions          PlotSuggestion[]
   sprites              Sprite[]
   creatorConversations CreatorConversation[]
+  tokenUsage           TokenUsage[]
 
   @@unique([coreUserId, workspaceId])
   @@index([email])
@@ -88,6 +89,7 @@ model Town {
   conversations        Conversation[]
   suggestions          PlotSuggestion[]
   creatorConversations CreatorConversation[]
+  tokenUsage           TokenUsage[]
   // Per-town catalog of visitor tags + SVG item templates. Authored under
   // the town deployment directory (tags inline in town.json, items as
   // items/manifest.json + items/<id>.svg) and uploaded via /api/town.
@@ -530,6 +532,52 @@ model CreatorConversation {
 
   @@index([townId, status])
   @@index([userId, status])
+}
+
+// Per-call LLM usage log. One row per completed AI-SDK call
+// (streamText / generateObject / generateText). Written fire-and-forget
+// from every LLM call site so the underlying response is never blocked
+// on the insert.
+//
+// `townId` is the primary linkage: every LLM call in this app happens
+// inside a town context (npc chat rooms, group chat rooms, creator CLI
+// scoped to a town). `userId` is who the call is attributed to for
+// quota/billing purposes — the town owner for chat surfaces, the
+// caller for the creator CLI. `npcId` is set when the call produced
+// an NPC turn (real Npc.id or system id like "core-founder"); null
+// for user-driven calls (creator CLI) and for the moderator (which
+// picks *which* NPC replies but doesn't itself speak).
+//
+// `event` values:
+//   • single_chat          — 1:1 NPC chat (/api/npc-chat, /api/founder-chat)
+//   • group_chat           — NPC reply inside a group room
+//   • decision             — group-chat moderator picking who replies
+//   • town_building_chat   — creator CLI chat (/api/creator)
+//
+// `buildingId` is populated when the call is scoped to a specific
+// building; null for account-scoped calls (creator CLI, founder-chat).
+//
+// `metadata` carries free-form extras — { topicId?, moderatorReason? }
+// — so we can slice usage later without a schema migration.
+model TokenUsage {
+  id           String   @id @default(cuid())
+  townId       String
+  town         Town     @relation(fields: [townId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  npcId        String?
+  buildingId   String?
+  event        String
+  model        String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([townId, createdAt])
+  @@index([townId, event, createdAt])
+  @@index([userId, createdAt])
+  @@index([npcId, createdAt])
 }
 
 // One stored turn in a CreatorConversation. `content` is the full AI SDK
