@@ -115,6 +115,7 @@ function Controls() {
       <ul className="flex flex-col gap-2.5">
         <KeyRow keys={["↑", "↓", "←", "→"]}>Walk around the town</KeyRow>
         <KeyRow keys={["SPACE"]}>Talk to a nearby NPC or neighbour</KeyRow>
+        <KeyRow keys={["⌘", "K"]}>Teleport to any building</KeyRow>
         <KeyRow keys={["ESC"]}>Close a dialogue or modal</KeyRow>
         <IconRow icon={<DoorIcon />}>Walk into a door to enter a building</IconRow>
         <IconRow icon={<PathIcon />}>

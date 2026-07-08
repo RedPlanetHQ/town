@@ -52,6 +52,10 @@ export type ShareImageState = { open: true } | null;
 // pill in the bottom-left toolbar.
 export type InstructionsState = { open: true } | null;
 
+// Cmd+K command palette — searchable teleport list of every building on
+// the active plot. Opened by Cmd/Ctrl+K, closed by ESC or selection.
+export type CommandBarState = { open: true } | null;
+
 // Town activity feed — slide-in panel on the right edge of the screen.
 // Opened from the top-right FEED button on the overworld HUD. Visitor
 // + owner both see the same feed.
@@ -165,6 +169,7 @@ type State = {
   invite: InviteState;
   shareImage: ShareImageState;
   instructions: InstructionsState;
+  commandBar: CommandBarState;
   feed: FeedState;
   proximity: ProximityState;
   dm: DmState;
@@ -185,6 +190,7 @@ let state: State = {
   invite: null,
   shareImage: null,
   instructions: null,
+  commandBar: null,
   feed: null,
   proximity: null,
   dm: null,
@@ -303,6 +309,27 @@ export const ui = {
     emit();
   },
 
+  openCommandBar() {
+    if (state.commandBar) return;
+    state = { ...state, commandBar: { open: true }, prompt: null };
+    emit();
+  },
+
+  closeCommandBar() {
+    if (!state.commandBar) return;
+    state = { ...state, commandBar: null };
+    emit();
+  },
+
+  toggleCommandBar() {
+    if (state.commandBar) {
+      state = { ...state, commandBar: null };
+    } else {
+      state = { ...state, commandBar: { open: true }, prompt: null };
+    }
+    emit();
+  },
+
   openFeed() {
     if (state.feed) return;
     state = { ...state, feed: { open: true } };
@@ -415,6 +442,7 @@ export const ui = {
       state.invite !== null ||
       state.shareImage !== null ||
       state.instructions !== null ||
+      state.commandBar !== null ||
       state.dm !== null ||
       state.suggestions.open
     );

@@ -34,6 +34,7 @@ import {
   publishLocalPosition,
   setLocalScene,
 } from "../realtime";
+import { registerTeleport } from "../teleport";
 import {
   defaultPlot,
   resolveSpriteUrl,
@@ -786,6 +787,31 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
         }
       });
 
+      // Cmd+K teleport handler. The CommandBar picks a building id, this
+      // parks the player one tile south of that building's door — same
+      // tile they'd stand on after exiting the interior. Publishes the
+      // new position so remotes see the jump instead of a rubber-band
+      // walk on next arrow key. No-op if the id doesn't match a
+      // building or the door tile falls off the world.
+      registerTeleport((buildingId: string) => {
+        const b = plot.buildings.find((x) => x.id === buildingId);
+        if (!b) return;
+        const tx = b.tx + Math.floor(b.w / 2);
+        const ty = Math.min(worldH - 1, b.ty + b.h);
+        // Same guard as the arrow-key path: refuse if the destination
+        // is somehow blocked (e.g. a pond crept into a door footprint).
+        if (isBlocked(tx, ty)) return;
+        player.tile = { tx, ty };
+        player.pos = k.vec2(tx * TILE, ty * TILE);
+        publishLocalPosition({
+          tx,
+          ty,
+          facing: player.facing,
+        });
+        // Kick decor + proximity to recompute against the new tile.
+        decorStream.update(tx, ty);
+      });
+
       // SPACE opens the DM panel with the current proximity target. We
       // listen here instead of inside <InteractionPrompt> because the
       // canvas always has keyboard focus when no overlay is open.
@@ -845,6 +871,9 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       // Drop every streamed decor game object so kaplay's scene teardown
       // doesn't leak them into the next scene.
       if (decorStreamRef) decorStreamRef.destroy();
+      // Clear the teleport bridge so the CommandBar doesn't fire into a
+      // dead player reference during interior scenes.
+      registerTeleport(null);
       ui.setHud(null);
       ui.setProximity(null);
     });

@@ -53,6 +53,9 @@ import { PopulationPopover, type Aura } from "./PopulationPopover";
 import { TownInstructionsModal } from "./TownInstructionsModal";
 import { TownRadio } from "./TownRadio";
 import { TransitionLoading } from "./TransitionLoading";
+import { CommandBar } from "./CommandBar";
+import { tinykeys } from "tinykeys";
+import { installCanvasFocusPolicy } from "../game/canvasFocus";
 
 // The mount point: a canvas owned by React, populated by kaplay in useEffect,
 // and a sibling overlay layer for the React-rendered UI (HUD, prompt, panels).
@@ -117,6 +120,7 @@ export function TownGame(props: TownGameProps = {}) {
     invite,
     shareImage,
     instructions,
+    commandBar,
     feed,
     proximity,
     dm,
@@ -257,6 +261,8 @@ export function TownGame(props: TownGameProps = {}) {
     !!shareImage ||
     !!dm ||
     !!explorer ||
+    !!instructions ||
+    !!commandBar ||
     suggestions.open;
   useEffect(() => {
     if (anyModalOpen) return;
@@ -264,6 +270,49 @@ export function TownGame(props: TownGameProps = {}) {
     if (active && active !== document.body) active.blur?.();
     canvasRef.current?.focus?.();
   }, [anyModalOpen]);
+
+  // Global click-based focus policy: every HUD button, popover item,
+  // and community link automatically hands keyboard focus back to the
+  // game canvas after a click — without each callsite having to remember
+  // to blur itself. Modals opt out via `isPaused()` (they manage their
+  // own focus); inputs, textareas, and anything inside a `[role=dialog]`
+  // opt out via the policy's own filter. See game/canvasFocus.ts.
+  useEffect(() => {
+    return installCanvasFocusPolicy({ shouldSkip: () => ui.isPaused() });
+  }, []);
+
+  // Global Cmd+K / Ctrl+K opens the teleport command palette. tinykeys
+  // handles the platform-neutral chord (Meta on mac, Control on
+  // win/linux) and de-dupes the browser's default binding. Suppressed
+  // while any *other* modal is paused — inside chat or panels, Cmd+K
+  // should stay a no-op so text inputs keep their own semantics — but
+  // still allowed when the palette itself is the only thing open so
+  // the same chord closes it.
+  useEffect(() => {
+    const unbind = tinykeys(window, {
+      "$mod+KeyK": (e) => {
+        const s = ui.getState();
+        // If the palette is up, Cmd+K always closes it. Otherwise
+        // refuse to open while any other pausing modal owns the input.
+        if (!s.commandBar) {
+          if (
+            s.panel ||
+            s.chat ||
+            s.dm ||
+            s.explorer ||
+            s.invite ||
+            s.shareImage ||
+            s.instructions ||
+            s.suggestions.open
+          )
+            return;
+        }
+        e.preventDefault();
+        ui.toggleCommandBar();
+      },
+    });
+    return () => unbind();
+  }, []);
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-ink-shadow">
@@ -398,6 +447,7 @@ export function TownGame(props: TownGameProps = {}) {
           townDescription={townDescription ?? null}
         />
       ) : null}
+      {commandBar ? <CommandBar /> : null}
       {!isVisitor && suggestions.open ? (
         <Suggestions list={suggestions.list} />
       ) : null}
