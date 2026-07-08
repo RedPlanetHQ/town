@@ -68,16 +68,31 @@ function decorSpriteId(group: string, spriteId: string): string {
   return `decor:${group}:${spriteId}`;
 }
 
+// Module-scoped cache. The manifest is a build-time artifact (immutable
+// at runtime) — refetching on every interior→overworld transition burns
+// a round-trip and, if the network hiccups, would leave the whole
+// transition stuck (see boot() early return below). One fetch per page
+// load is plenty.
+let manifestCache: Manifest | null = null;
+let manifestInflight: Promise<Manifest | null> | null = null;
+
 async function loadManifest(): Promise<Manifest | null> {
-  try {
-    const res = await fetch("/sprites/extras/MANIFEST.json", {
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as Manifest;
-  } catch {
-    return null;
-  }
+  if (manifestCache) return manifestCache;
+  if (manifestInflight) return manifestInflight;
+  manifestInflight = (async () => {
+    try {
+      const res = await fetch("/sprites/extras/MANIFEST.json");
+      if (!res.ok) return null;
+      const parsed = (await res.json()) as Manifest;
+      manifestCache = parsed;
+      return parsed;
+    } catch {
+      return null;
+    } finally {
+      manifestInflight = null;
+    }
+  })();
+  return manifestInflight;
 }
 
 /** Register every kaplay sprite the plot will draw. Idempotent — calling
@@ -140,17 +155,42 @@ function drawGround(k: KAPLAYCtx, worldW: number, worldH: number) {
   ]);
 }
 
+// Paths + ponds are drawn via a single onDraw container per surface —
+// not one game object per tile. Kaplay's optimization guide is explicit
+// that static visuals should be drawn (drawSprite / drawRect) instead
+// of `k.add`'d, because every added object costs a per-frame update
+// slot. A dense plot has hundreds of path/pond tiles; folding them into
+// one onDraw callback trims that off the game-object list entirely.
+// Positions are pre-baked into a Vec2 so the draw callback allocates
+// nothing per frame.
+
+interface TileDraw {
+  sprite: string;
+  pos: ReturnType<KAPLAYCtx["vec2"]>;
+}
+
 function drawPaths(k: KAPLAYCtx, paths: PlotPath[]): Set<string> {
   const set = new Set<string>();
   for (const p of paths) {
     for (const [x, y] of p.tiles) set.add(x + "," + y);
   }
+  const tiles: TileDraw[] = [];
   for (const key of set) {
     const [xs, ys] = key.split(",");
     const x = parseInt(xs!, 10);
     const y = parseInt(ys!, 10);
-    const sprite = autotile9Slice(set, x, y, "path");
-    k.add([k.sprite(sprite), k.pos(x * TILE, y * TILE), k.z(0.2)]);
+    tiles.push({
+      sprite: autotile9Slice(set, x, y, "path"),
+      pos: k.vec2(x * TILE, y * TILE),
+    });
+  }
+  if (tiles.length > 0) {
+    const container = k.add([k.z(0.2)]);
+    container.onDraw(() => {
+      for (const t of tiles) {
+        k.drawSprite({ sprite: t.sprite, pos: t.pos });
+      }
+    });
   }
   return set;
 }
@@ -164,12 +204,23 @@ function drawPonds(k: KAPLAYCtx, ponds: PlotPond[]): Set<string> {
       }
     }
   }
+  const tiles: TileDraw[] = [];
   for (const key of set) {
     const [xs, ys] = key.split(",");
     const x = parseInt(xs!, 10);
     const y = parseInt(ys!, 10);
-    const sprite = autotile9Slice(set, x, y, "pond");
-    k.add([k.sprite(sprite), k.pos(x * TILE, y * TILE), k.z(0.15)]);
+    tiles.push({
+      sprite: autotile9Slice(set, x, y, "pond"),
+      pos: k.vec2(x * TILE, y * TILE),
+    });
+  }
+  if (tiles.length > 0) {
+    const container = k.add([k.z(0.15)]);
+    container.onDraw(() => {
+      for (const t of tiles) {
+        k.drawSprite({ sprite: t.sprite, pos: t.pos });
+      }
+    });
   }
   return set;
 }
@@ -285,7 +336,24 @@ function createDecorStream(
   };
 }
 
-function drawBuilding(k: KAPLAYCtx, b: PlotBuilding) {
+interface SignDraw {
+  postPos: ReturnType<KAPLAYCtx["vec2"]>;
+  boardPos: ReturnType<KAPLAYCtx["vec2"]>;
+  boardW: number;
+  boardH: number;
+  stripePos: ReturnType<KAPLAYCtx["vec2"]>;
+  labelPos: ReturnType<KAPLAYCtx["vec2"]>;
+  label: string;
+}
+
+/** Draw the building sprite (still a game object — it needs its z
+ *  independently sortable relative to trees/decor) plus register the
+ *  sign spec into `signAcc` for batched drawing at scene init. */
+function drawBuilding(
+  k: KAPLAYCtx,
+  b: PlotBuilding,
+  signAcc: SignDraw[],
+): void {
   // Bottom-center the sprite on the south edge of the plot rect so the
   // building's front door sits at a predictable row (matches what the
   // catalog playground does for extras). Tall sprites like villa-1.png
@@ -304,9 +372,6 @@ function drawBuilding(k: KAPLAYCtx, b: PlotBuilding) {
   const signTy = b.ty + b.h;
   const signPy = signTy * TILE;
   const anchorX = (b.tx + b.w / 2) * TILE;
-  const accent = hex(k, theme.buildings.HOME.accent);
-  const ink = hex(k, INK);
-  const cream = hex(k, theme.signCream);
 
   // Board width scales with label length. Kaplay's default bitmap font
   // measures ~6px per glyph at size 8, plus 6px breathing room each side.
@@ -315,34 +380,59 @@ function drawBuilding(k: KAPLAYCtx, b: PlotBuilding) {
   const boardH = 14;
   const minBoardW = TILE * 3;
   const boardW = Math.max(minBoardW, label.length * 6 + 12);
-
-  k.add([
-    k.rect(3, 18),
-    k.pos(anchorX - 1.5, signPy + 14),
-    k.color(ink),
-    k.z(20),
-  ]);
   const boardX = anchorX - boardW / 2;
-  k.add([
-    k.rect(boardW, boardH, { radius: 2 }),
-    k.pos(boardX, signPy),
-    k.color(cream),
-    k.outline(1, ink),
-    k.z(20.1),
-  ]);
-  k.add([
-    k.rect(boardW, 3),
-    k.pos(boardX, signPy + boardH - 3),
-    k.color(accent),
-    k.z(20.2),
-  ]);
-  k.add([
-    k.text(label, { size: 8 }),
-    k.anchor("center"),
-    k.pos(boardX + boardW / 2, signPy + boardH / 2 - 1),
-    k.color(ink),
-    k.z(20.3),
-  ]);
+
+  signAcc.push({
+    postPos: k.vec2(anchorX - 1.5, signPy + 14),
+    boardPos: k.vec2(boardX, signPy),
+    boardW,
+    boardH,
+    stripePos: k.vec2(boardX, signPy + boardH - 3),
+    labelPos: k.vec2(boardX + boardW / 2, signPy + boardH / 2 - 1),
+    label,
+  });
+}
+
+/** After every drawBuilding has populated `signs`, register a single
+ *  onDraw container that renders all sign layers for every building in
+ *  one pass. Replaces 4 × N game objects (post, board, accent stripe,
+ *  label) with 1 game object + N iterations per frame. */
+function mountSigns(k: KAPLAYCtx, signs: SignDraw[]): void {
+  if (signs.length === 0) return;
+  const ink = hex(k, INK);
+  const cream = hex(k, theme.signCream);
+  const accent = hex(k, theme.buildings.HOME.accent);
+  const container = k.add([k.z(20)]);
+  container.onDraw(() => {
+    for (const s of signs) {
+      // Post — narrow ink rect under the board.
+      k.drawRect({ pos: s.postPos, width: 3, height: 18, color: ink });
+      // Board — cream rounded rect with an ink outline.
+      k.drawRect({
+        pos: s.boardPos,
+        width: s.boardW,
+        height: s.boardH,
+        color: cream,
+        radius: 2,
+        outline: { color: ink, width: 1 },
+      });
+      // Accent stripe — a thin colored bar along the board's bottom.
+      k.drawRect({
+        pos: s.stripePos,
+        width: s.boardW,
+        height: 3,
+        color: accent,
+      });
+      // Label — centered inside the board.
+      k.drawText({
+        text: s.label,
+        size: 8,
+        pos: s.labelPos,
+        anchor: "center",
+        color: ink,
+      });
+    }
+  });
 }
 
 // =============================================================================
@@ -378,18 +468,34 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
     let unsubSession: (() => void) | null = null;
     let detachRemotes: (() => void) | null = null;
     let decorStreamRef: DecorStream | null = null;
+    // Cancellation guard for the async boot pipeline. Flipped by
+    // onSceneLeave. Every await point checks this before proceeding, and
+    // in particular no `k.onUpdate`, `k.onKeyPress`, `k.add`, or
+    // `attachRemotePlayers` runs after cancellation — otherwise a
+    // previous scene's boot() that landed mid-transition would register
+    // its handlers on the *new* scene, doubling (then tripling, then
+    // …) the per-frame work every interior→overworld round-trip and
+    // making character movement progressively laggier until reload.
+    let cancelled = false;
 
     async function boot(initialPlot?: Plot, initialVersion?: number) {
       const initialPayload = initialPlot
         ? { plot: initialPlot, version: initialVersion ?? 0 }
         : await loadPlot();
+      if (cancelled) return;
 
       // Manifest is needed both to render the plot AND, on the guest path,
       // to seed the generator (it scatters decor from the extras pack).
       // Load it before we decide what to render.
       const manifest = await loadManifest();
+      if (cancelled) return;
       if (!manifest) {
         console.error("[overworld] missing extras manifest");
+        // Flip worldReady=true so the TransitionLoading overlay dismisses
+        // even in this degraded state. Prior behaviour left it stuck
+        // forever and forced the player to reload the whole page to
+        // recover from a single failed static-asset fetch.
+        ui.setWorldReady(true);
         return;
       }
 
@@ -405,6 +511,7 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       // reads `plot.npcs` to render NPC slots per-building).
       setCachedPlot(plot);
       await loadPlotSprites(k, plot, manifest);
+      if (cancelled) return;
 
       // Tell realtime we're in the overworld so heartbeats + sleep/wake
       // publishes carry the correct scene tag. Without this, a visitor
@@ -428,7 +535,9 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       const pathSet = drawPaths(k, plot.paths);
       const decorStream = createDecorStream(k, plot.decor);
       decorStreamRef = decorStream;
-      for (const b of plot.buildings) drawBuilding(k, b);
+      const signs: SignDraw[] = [];
+      for (const b of plot.buildings) drawBuilding(k, b, signs);
+      mountSigns(k, signs);
 
       // Tell React the world is rendered — BootScreen can dismiss
       // itself (after its sweep finishes) and the overworld becomes
@@ -715,9 +824,21 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       }
     }
 
-    void boot(opts.plot, opts.version);
+    // Any thrown error inside boot() (a sprite 404, a network blip during
+    // loadPlot, a subscribePlot init failure) would otherwise leave the
+    // TransitionLoading overlay pinned — the only recovery was a full
+    // page reload. Catch here so the overlay always dismisses.
+    void boot(opts.plot, opts.version).catch((err) => {
+      console.error("[overworld] boot failed", err);
+      ui.setWorldReady(true);
+    });
 
     k.onSceneLeave(() => {
+      // Cancel any in-flight boot() so its post-await registrations
+      // (k.onUpdate handlers, k.add game objects, subscribePlot) don't
+      // land on the next scene — see `cancelled` declaration above for
+      // the perf-lag repro this prevents.
+      cancelled = true;
       if (unsubscribe) unsubscribe();
       if (unsubSession) unsubSession();
       if (detachRemotes) detachRemotes();

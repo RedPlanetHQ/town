@@ -144,17 +144,33 @@ export function getRemotePlayers(): RemotePlayer[] {
   return Array.from(remotes.values());
 }
 
-// Same list, filtered to remotes whose `scene` matches the caller's
-// current scene. Used by the overworld + each interior so a visitor
-// who walked into a house doesn't appear stuck at the door tile to the
-// owner outside, and so co-occupants of the same interior see each
-// other.
-export function getRemotePlayersForScene(scene: string): RemotePlayer[] {
-  const out: RemotePlayer[] = [];
+// Per-scene roster cache. Rebuilt eagerly on every mutation (publish,
+// stale expiry, stop) so `getRemotePlayersForScene` is O(1) for the
+// caller — the proximity tick that runs 60Hz on the overworld reads
+// this every frame and previously allocated a fresh array + walked the
+// full remotes Map per call. Empty array is shared so a scene with no
+// players still returns a stable reference.
+const remotesByScene = new Map<string, RemotePlayer[]>();
+const EMPTY_ROSTER: RemotePlayer[] = [];
+
+function rebuildRemotesByScene() {
+  remotesByScene.clear();
   for (const p of remotes.values()) {
-    if (p.scene === scene) out.push(p);
+    let arr = remotesByScene.get(p.scene);
+    if (!arr) {
+      arr = [];
+      remotesByScene.set(p.scene, arr);
+    }
+    arr.push(p);
   }
-  return out;
+}
+
+// Same list as getRemotePlayers, filtered to the caller's scene. The
+// overworld hides visitors who are inside a house; each interior only
+// renders co-occupants of that room. Cache above turns this into a
+// single Map lookup instead of a per-frame O(remotes) filter.
+export function getRemotePlayersForScene(scene: string): RemotePlayer[] {
+  return remotesByScene.get(scene) ?? EMPTY_ROSTER;
 }
 
 export function onRemotesChange(fn: Listener): () => void {
@@ -227,6 +243,7 @@ const STALE_MS = 30_000;
 const HEARTBEAT_MS = 10_000;
 
 function notify() {
+  rebuildRemotesByScene();
   for (const l of listeners) l();
 }
 
@@ -240,9 +257,6 @@ function applyPublication(data: unknown) {
     return;
   }
   const scene = typeof p.s === "string" && p.s.length > 0 ? p.s : SCENE_OVERWORLD;
-  console.log(
-    `${LOG} remote update key=${p.k} name=${p.n} tile=${p.tx},${p.ty} idle=${p.i ?? false} scene=${scene}`,
-  );
   remotes.set(p.k, {
     participantKey: p.k,
     name: p.n,
@@ -473,12 +487,7 @@ function publishLocal(
   scene: string,
 ): void {
   lastSent = { tx, ty, facing, idle, scene };
-  if (!positionsSub || !self) {
-    console.log(
-      `${LOG} publishLocal queued (sub not ready) tx=${tx} ty=${ty} idle=${idle} scene=${scene}`,
-    );
-    return;
-  }
+  if (!positionsSub || !self) return;
   const payload: PositionPayload = {
     k: self.participantKey,
     n: self.name,
@@ -490,11 +499,7 @@ function publishLocal(
     s: scene,
   };
   positionsSub.publish(payload).then(
-    () => {
-      console.log(
-        `${LOG} publish ok tx=${tx} ty=${ty} idle=${idle} scene=${scene}`,
-      );
-    },
+    () => {},
     (err) => {
       console.warn(`${LOG} publish failed`, err);
     },

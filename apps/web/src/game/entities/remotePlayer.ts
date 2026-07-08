@@ -127,10 +127,11 @@ export function attachRemotePlayers(
       1,
       TWEEN_S,
       (t) => {
-        entry.parent.pos = k.vec2(
-          fromX + (targetX - fromX) * t,
-          fromY + (targetY - fromY) * t,
-        );
+        // Mutate the existing Vec2 in place — kaplay reads .pos.x / .pos.y
+        // on the next render tick either way. Allocating a fresh vec2 each
+        // frame (60Hz × visitor count) was hot-path GC pressure.
+        entry.parent.pos.x = fromX + (targetX - fromX) * t;
+        entry.parent.pos.y = fromY + (targetY - fromY) * t;
       },
       k.easings.linear,
     );
