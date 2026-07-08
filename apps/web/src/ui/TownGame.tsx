@@ -48,6 +48,7 @@ import { CommunityLinks } from "./CommunityLinks";
 import { Flyover } from "./Flyover";
 import { HudButton } from "./HudButton";
 import { AuraBar } from "./AuraBar";
+import { LeaderboardPopover } from "./LeaderboardPopover";
 import { PopulationPopover, type Aura } from "./PopulationPopover";
 import { TownInstructionsModal } from "./TownInstructionsModal";
 import { TownRadio } from "./TownRadio";
@@ -351,6 +352,9 @@ export function TownGame(props: TownGameProps = {}) {
               : null
           }
         />
+        {ownerSlug ?? visitorSlug ? (
+          <LeaderboardBadge townSlug={(ownerSlug ?? visitorSlug) as string} />
+        ) : null}
         {isVisitor ? (
           <ItemsBadge townSlug={(props as { townSlug: string }).townSlug} />
         ) : null}
@@ -596,6 +600,52 @@ function PopulationBadge({
         <PopulationPopover aura={aura} onClose={() => setOpen(false)} />
       ) : null}
     </div>
+  );
+}
+
+// Icon-only HudButton sibling to the Population pill. Opens a popover
+// with the per-town leaderboard (visitors ranked by items + tags earned
+// inside this town). The trophy glyph is the recognizable "leaderboard"
+// signifier at pill height — no label, so the pill stays compact next
+// to the wider Population one.
+function LeaderboardBadge({ townSlug }: { townSlug: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative inline-flex">
+      <HudButton
+        onClick={() => setOpen((v) => !v)}
+        active={open}
+        aria-label="Open leaderboard"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        title="Leaderboard — top visitors in this town"
+      >
+        <TrophyIcon />
+      </HudButton>
+      {open ? (
+        <LeaderboardPopover townSlug={townSlug} onClose={() => setOpen(false)} />
+      ) : null}
+    </div>
+  );
+}
+
+function TrophyIcon() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M8 4h8v4a4 4 0 0 1-8 0V4zM5 5h3v3H6a2 2 0 0 1-2-2V5h1zm14 0h-3v3h2a2 2 0 0 0 2-2V5h-1zM10 14h4l1 5h-6l1-5z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="square"
+      />
+    </svg>
   );
 }
 

@@ -1,7 +1,7 @@
 // Shared shell for the plain info pages (/feedback, /explore) so they
 // stay visually locked to the same dark theme: bg-black, paper text,
 // uppercase tracking, `text-primary` accent for a highlighted word,
-// and a "← Back to city" link at the top-left.
+// and a "← Back to town" link at the top-left.
 //
 // Kept intentionally simple — no header actions, no right-aligned
 // meta. Pages that need extra top-bar surface (a tab switcher, a
@@ -20,7 +20,7 @@ const MAX_WIDTH_CLASS: Record<MaxWidth, string> = {
 
 export function InfoPageShell({
   backHref = "/",
-  backLabel = "← Back to city",
+  backLabel = "← Back to town",
   title,
   subtitle,
   maxWidth = "2xl",

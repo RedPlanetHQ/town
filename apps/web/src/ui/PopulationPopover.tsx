@@ -108,7 +108,7 @@ export function PopulationPopover({ aura, onClose }: PopulationPopoverProps) {
     <div
       ref={rootRef}
       className="nb-card-dark absolute right-0 z-40 mt-2 flex flex-col"
-      style={{ top: "100%", width: 320, maxHeight: "70vh" }}
+      style={{ top: "100%", width: 320, height: 440, maxHeight: "70vh" }}
       role="dialog"
       aria-label="Population directory"
     >

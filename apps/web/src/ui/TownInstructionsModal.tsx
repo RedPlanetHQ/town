@@ -117,6 +117,9 @@ function Controls() {
         <KeyRow keys={["SPACE"]}>Talk to a nearby NPC or neighbour</KeyRow>
         <KeyRow keys={["ESC"]}>Close a dialogue or modal</KeyRow>
         <IconRow icon={<DoorIcon />}>Walk into a door to enter a building</IconRow>
+        <IconRow icon={<PathIcon />}>
+          Follow the brown paths — they lead to each building&apos;s door
+        </IconRow>
         <IconRow icon={<SparkIcon />}>
           Aura is the town&apos;s energy — chat and NPCs draw from it
         </IconRow>
@@ -174,6 +177,19 @@ function DoorIcon() {
     <svg width={12} height={12} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
         d="M6 3h12v18H6zM10 12h.01"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="square"
+      />
+    </svg>
+  );
+}
+
+function PathIcon() {
+  return (
+    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 20c3-2 4-5 7-5s4 3 7-1c1.5-2 2-4 2-6"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="square"

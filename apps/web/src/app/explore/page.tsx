@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Leaderboard",
-  description: "Top public towns ranked by aura + visitors.",
+  description: "Top public towns.",
 };
 
 type Row = {
@@ -82,7 +82,7 @@ export default async function ExplorePage() {
           Public <span className="text-primary">town</span> leaderboard
         </>
       }
-      subtitle={`Ranked by aura + ${SCORE_VISITOR_WEIGHT} × visitors. Owners opt in from the identity menu.`}
+      subtitle="A window into the towns people are visiting right now — pick one and wander in."
     >
       {rows.length === 0 ? <EmptyState /> : <LeaderboardTable rows={rows} />}
     </InfoPageShell>
