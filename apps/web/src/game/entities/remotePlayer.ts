@@ -141,26 +141,33 @@ export function attachRemotePlayers(
     });
   }
 
-  function reconcile() {
-    const current = new Map<string, RemotePlayer>();
-    for (const p of getRemotePlayersForScene(opts.scene)) {
-      current.set(p.participantKey, p);
-    }
+  // Reused across reconcile calls so we don't allocate a fresh Set on
+  // every Centrifugo publication. First pass fills it; second pass reads
+  // it; caller-side use is over before the next reconcile can fire.
+  const seenKeys = new Set<string>();
 
-    for (const [key, entry] of active) {
-      if (!current.has(key)) {
-        entry.activeTween?.cancel();
-        entry.parent.destroy();
-        active.delete(key);
-      }
-    }
-    for (const [key, player] of current) {
-      let entry = active.get(key);
+  function reconcile() {
+    seenKeys.clear();
+    // First pass: spawn newcomers, update existing entries, mark every
+    // participantKey we've seen. Skips the throwaway Map<string,
+    // RemotePlayer> we used to build here.
+    for (const player of getRemotePlayersForScene(opts.scene)) {
+      seenKeys.add(player.participantKey);
+      let entry = active.get(player.participantKey);
       if (entry) {
         update(entry, player);
       } else {
         entry = spawn(player);
-        active.set(key, entry);
+        active.set(player.participantKey, entry);
+      }
+    }
+    // Second pass: destroy anyone the current scene roster didn't
+    // mention. Runs O(active) rather than O(active × current).
+    for (const [key, entry] of active) {
+      if (!seenKeys.has(key)) {
+        entry.activeTween?.cancel();
+        entry.parent.destroy();
+        active.delete(key);
       }
     }
 

@@ -1199,8 +1199,18 @@ export function registerInteriorScene(k: KAPLAYCtx) {
       return PALETTE.h240;
     };
 
+    // The proximity check runs 60Hz inside the onUpdate below, but its
+    // result is purely a function of the player's current tile — same
+    // tile => same interactable. Memoize by "tx,ty" so the linear scan
+    // only fires when the player actually walks onto a new tile.
+    let cachedTileKey: string | null = null;
+    let cachedResult: Interactable | null = null;
+
     const nearestInteract = (): Interactable | null => {
       const pt = player.tile;
+      const tileKey = pt.tx + "," + pt.ty;
+      if (tileKey === cachedTileKey) return cachedResult;
+
       // Panel interactables (scratchpad, phone booth, price machine, …)
       // keep strict cardinal adjacency — the prompt should only appear
       // when the player is literally standing next to the furniture.
@@ -1213,6 +1223,7 @@ export function registerInteriorScene(k: KAPLAYCtx) {
       // closest one wins.
       let npcCandidate: Interactable | null = null;
       let npcBestDist = Infinity;
+      let result: Interactable | null = null;
       for (const it of spec.interacts ?? []) {
         const dx = Math.abs(pt.tx - it.tx);
         const dy = Math.abs(pt.ty - it.ty);
@@ -1224,9 +1235,14 @@ export function registerInteriorScene(k: KAPLAYCtx) {
           }
           continue;
         }
-        if (dist === 1) return it;
+        if (dist === 1) {
+          result = it;
+          break;
+        }
       }
-      return npcCandidate;
+      cachedTileKey = tileKey;
+      cachedResult = result ?? npcCandidate;
+      return cachedResult;
     };
 
     const resolveLabel = (it: Interactable): string =>
