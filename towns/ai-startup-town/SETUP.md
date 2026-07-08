@@ -55,9 +55,8 @@ Every cofounder MDX carries the same guarded pattern before its
    in — the cofounder refuses warmly: *"The deck is only useful if
    it's yours. Give me the real answer and I'll get it down."*
 5. **Stale doc handling.** If `replace_text` returns a not-found or
-   permission error on a URL from memory, the cofounder retries via
-   `list_documents` for the deterministic name. If that also misses,
-   the deck is gone — the cofounder sends the founder back to Sam.
+   permission error, the deck is gone — the cofounder sends the founder
+   back to Sam at the Welcome Building.
 6. **One replacement per conversation.** The cofounder replaces exactly
    once and does not re-touch a section whose placeholder is already
    gone.
@@ -93,31 +92,27 @@ the founder's URL just works.
 
 **Sam's job (once per visitor):**
 
-1. `memory_search(query="pitch deck google doc URL for this visitor")` —
-   check `<visitor_memory>` for an existing URL (returning visitor).
-2. `list_documents` — look for a doc named exactly `AI STARTUP TOWN
-   DECK — <Session key>`. Cross-check the memory result against this
-   list; if memory returned a URL but Drive doesn't have it, treat the
-   deck as gone.
-3. If both misses (or memory is stale): call `clone_document` with the
-   hardcoded template URL
+1. `list_documents` — look for a doc named exactly `AI STARTUP TOWN
+   DECK — <Session key>`. If it exists, hand back its URL.
+2. If not found: call `clone_document` with the hardcoded template URL
    (`https://docs.google.com/document/d/1PoJx2e0o1l2UPQHvjG7-Cx0mL_G2ga_RQd3qWqtSTNo/edit`),
    `title: "AI STARTUP TOWN DECK — <Session key>"`,
    `folderName: "startups"`, `makePublic: true`. Take the returned URL.
-4. Return the URL in chat and point the founder at the cofounders.
+3. Return the URL in chat and point the founder at the cofounders.
 
 **Each cofounder's job (per section):**
 
-1. `memory_search` for the deck URL in `<visitor_memory>`.
-2. If missed: `list_documents` for `AI STARTUP TOWN DECK — <Session key>`.
-3. If neither found: warmly redirect the founder to Sam at the Welcome
-   Room. They cannot clone (no permission) — chat instead.
-4. If found: work the four beats (strict completion gate above), then
+1. `list_documents` for `AI STARTUP TOWN DECK — <Session key>`.
+2. If not found: redirect the founder to Sam at the Welcome Building
+   and stop there. Cofounders cannot clone (no permission) and must
+   not workshop the section on the substance until the founder returns
+   with a URL.
+3. If found: work the four beats (strict completion gate above), then
    `replace_text` on their placeholder with a beat-labeled paragraph.
-   If `replace_text` errors on a stale URL, retry via `list_documents`;
-   if that also misses, send the founder back to Sam.
-5. Mention the URL naturally in the reply so memory catches it for the
-   next cofounder.
+   If `replace_text` errors, the deck is gone — send the founder back
+   to Sam at the Welcome Building.
+4. Mention the URL naturally in the reply so the founder has it in
+   hand.
 
 The **Session key** is the opaque per-visitor id every NPC receives in
 their system prompt (surfaced from `visitorSubjectKey` in
