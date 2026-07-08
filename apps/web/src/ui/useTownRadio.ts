@@ -22,6 +22,27 @@ interface RadioState {
   error: boolean;
 }
 
+const PAUSED_STORAGE_KEY = "town-radio:paused";
+
+function readPausedPreference(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(PAUSED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writePausedPreference(paused: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PAUSED_STORAGE_KEY, paused ? "1" : "0");
+  } catch {
+    // Storage may be unavailable (private mode, quota) — the radio still
+    // works, it just won't remember the preference next reload.
+  }
+}
+
 let audioEl: HTMLAudioElement | null = null;
 let state: RadioState = { index: 0, playing: false, error: false };
 const listeners = new Set<() => void>();
@@ -100,6 +121,9 @@ function armDefaultPlay(): void {
     window.removeEventListener("keydown", begin);
     // Don't trample on a user who already pressed play in the popover.
     if (state.playing) return;
+    // Respect a persisted pause: if the user paused the radio in a
+    // previous session, don't spring it back to life on their next click.
+    if (readPausedPreference()) return;
     loadAndPlay(0);
   };
   window.addEventListener("pointerdown", begin, { once: true });
@@ -141,9 +165,11 @@ export function useTownRadio(): UseTownRadio {
     const a = ensureAudio();
     if (!a) return;
     if (state.playing) {
+      writePausedPreference(true);
       a.pause();
       return;
     }
+    writePausedPreference(false);
     if (!a.src) {
       loadAndPlay(state.index);
       return;
@@ -154,10 +180,12 @@ export function useTownRadio(): UseTownRadio {
   }
 
   function next() {
+    writePausedPreference(false);
     loadAndPlay((state.index + 1) % TOWN_RADIO_TRACKS.length);
   }
 
   function prev() {
+    writePausedPreference(false);
     loadAndPlay(
       (state.index - 1 + TOWN_RADIO_TRACKS.length) % TOWN_RADIO_TRACKS.length,
     );
@@ -165,6 +193,7 @@ export function useTownRadio(): UseTownRadio {
 
   function select(index: number) {
     if (index < 0 || index >= TOWN_RADIO_TRACKS.length) return;
+    writePausedPreference(false);
     loadAndPlay(index);
   }
 
