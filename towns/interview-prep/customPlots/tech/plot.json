@@ -1,0 +1,30 @@
+{
+  "id": "tech",
+  "label": "The Dev Den",
+  "category": "WORKSHOP",
+  "interior": {
+    "sprite": "interiors/workshop/empty-workshop-room.png",
+    "widthTiles": 10,
+    "heightTiles": 7,
+    "walkable": { "tx": 0, "ty": 3, "w": 10, "h": 4 },
+    "spawn": { "tx": 5, "ty": 6 },
+    "exit": { "tx": 5, "ty": 6 },
+    "props": [
+      { "sprite": "office/corkboard", "tx": 1, "ty": 2 },
+      { "sprite": "office/tall_cabinet", "tx": 3, "ty": 2 },
+      { "sprite": "office/plant_tall", "tx": 8, "ty": 2 }
+    ],
+    "blocked": []
+  },
+  "variants": [
+    {
+      "id": "tech.den",
+      "exteriorSprite": "exteriors/cafe/market-small-2.png",
+      "npcPositions": [
+        { "id": "backend",  "tx": 2, "ty": 4, "label": "Backend / AI" },
+        { "id": "frontend", "tx": 5, "ty": 4, "label": "Frontend" },
+        { "id": "mldata",   "tx": 8, "ty": 4, "label": "ML / Data" }
+      ]
+    }
+  ]
+}
