@@ -1,0 +1,12 @@
+{
+  "name": "town",
+  "version": "0.1.0",
+  "description": "Claude skills for authoring, generating, and deploying Town — the AI-powered multiplayer pixel world. Wraps the `town` CLI (@redplanethq/town) so Claude can scaffold towns, generate custom building art, write NPC personas, and ship deploys end-to-end.",
+  "author": {
+    "name": "Redplanethq",
+    "url": "https://github.com/redplanethq"
+  },
+  "homepage": "https://github.com/redplanethq/town-next",
+  "repository": "https://github.com/redplanethq/town-next",
+  "license": "MIT"
+}

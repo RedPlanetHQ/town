@@ -1,0 +1,18 @@
+{
+  "name": "redplanethq",
+  "owner": {
+    "name": "Redplanethq"
+  },
+  "metadata": {
+    "description": "Plugins by Town (redplanethq)",
+    "homepage": "https://github.com/redplanethq/town-next"
+  },
+  "plugins": [
+    {
+      "name": "town",
+      "version": "0.1.0",
+      "source": "./plugin",
+      "description": "Create, edit, and deploy Town — pixel-art multiplayer worlds built with the `town` CLI"
+    }
+  ]
+}
