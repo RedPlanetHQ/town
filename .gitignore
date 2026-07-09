@@ -48,3 +48,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .gstack/
+
+# internal working docs (specs/plans) — not part of the repo
+docs/superpowers/
