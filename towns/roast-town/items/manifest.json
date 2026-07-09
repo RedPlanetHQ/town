@@ -21,5 +21,15 @@
       { "name": "opponent_line", "label": "Vinny's strongest burn from the battle, verbatim", "maxLength": 80 },
       { "name": "verdict", "label": "Vinny's final call — one short line", "maxLength": 80 }
     ]
+  },
+  {
+    "id": "dojo-card",
+    "label": "Burn Dojo — Sharpened",
+    "description": "Awarded by Sensei Slim when the student finally lands a black-belt-level burn on a practice dummy. Records the rank earned, the winning line, and the technique they nailed. Issue once per session, only after a burn genuinely lands — not for a soft or white-belt attempt.",
+    "fields": [
+      { "name": "rank", "label": "Belt earned — e.g. 'Black Belt', 'Brown Belt'", "maxLength": 20 },
+      { "name": "line", "label": "The student's winning burn, verbatim", "maxLength": 90 },
+      { "name": "technique", "label": "The roasting principle they nailed — e.g. 'The twist', 'Specificity'", "maxLength": 40 }
+    ]
   }
 ]

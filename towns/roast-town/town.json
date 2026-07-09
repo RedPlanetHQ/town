@@ -26,12 +26,6 @@
       "label": "The Pitch Room"
     },
     {
-      "id": "studio",
-      "plotKey": "studio",
-      "variantId": "studio.atelier",
-      "label": "The Design Studio"
-    },
-    {
       "id": "culture",
       "plotKey": "store",
       "variantId": "store.the-parlor",
