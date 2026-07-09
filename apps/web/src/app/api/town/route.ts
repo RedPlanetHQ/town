@@ -28,7 +28,12 @@ import {
   type TownShape,
 } from "@/lib/town-shape";
 import { assertSafeSvg } from "@/lib/town-tools";
-import { IncrementalError } from "@town/plot-gen";
+import { catalog } from "@town/catalog";
+import {
+  IncrementalError,
+  pickVariant,
+  resolveEffectivePlot,
+} from "@town/plot-gen";
 import type { CustomPlot, Plot } from "@town/plot";
 import { validatePlot } from "@town/plot";
 
@@ -177,6 +182,93 @@ const PostBodySchema = z.object({
   description: z.string().max(500).optional(),
 });
 
+type NpcInput = z.infer<typeof NpcSchema>;
+type BuildingInput = z.infer<typeof BuildingSchema>;
+type CustomPlotInput = z.infer<typeof CustomPlotSchema>;
+
+/** Verify every NPC in the roster has somewhere to stand — the
+ *  (buildingId, slotId) pair must map to an npcSlot on the resolved
+ *  variant, and no two NPCs may share a slot. Called before
+ *  applyTownShape so a bad deploy doesn't leave the plot mutated with a
+ *  half-applied NPC roster. */
+function validateNpcSlots(
+  buildings: BuildingInput[],
+  customPlots: CustomPlotInput[] | undefined,
+  npcs: NpcInput[] | undefined,
+): Array<{ path: string; message: string }> {
+  if (!npcs || npcs.length === 0) return [];
+
+  const cps = (customPlots ?? []) as CustomPlot[];
+  // buildingId → Set of slot ids available on the resolved variant.
+  const slotsByBuilding = new Map<string, Set<string>>();
+  const missingBuildingRefs = new Set<string>();
+
+  for (const b of buildings) {
+    const plot = resolveEffectivePlot(catalog, cps, b.plotKey);
+    if (!plot) {
+      // Building references a plotKey with no catalog or custom match.
+      // validatePlot / applyTownShape will flag the building itself;
+      // we just record an empty slot set so downstream NPC errors are
+      // scoped to unknown-slot, not double-reported here.
+      slotsByBuilding.set(b.id, new Set());
+      continue;
+    }
+    const variant = pickVariant(plot, b.variantId);
+    if (!variant) {
+      slotsByBuilding.set(b.id, new Set());
+      continue;
+    }
+    slotsByBuilding.set(b.id, new Set(variant.npcSlots.map((s) => s.id)));
+  }
+
+  const issues: Array<{ path: string; message: string }> = [];
+  const seenKeys = new Map<string, number>();
+  for (const [i, n] of npcs.entries()) {
+    const slotId = n.slotId ?? "";
+    const key = `${n.buildingId}::${slotId}`;
+    const priorIdx = seenKeys.get(key);
+    if (priorIdx !== undefined) {
+      issues.push({
+        path: `npcs[${i}]`,
+        message:
+          `"${n.name}" collides with npcs[${priorIdx}] — both bind to ` +
+          `building "${n.buildingId}" slot "${slotId}". Either give one ` +
+          `of them a distinct slotId or move it to another building.`,
+      });
+      continue;
+    }
+    seenKeys.set(key, i);
+
+    const slots = slotsByBuilding.get(n.buildingId);
+    if (!slots) {
+      // The building isn't in the incoming shape at all — a stale MDX
+      // for a building that was removed from town.json.
+      if (!missingBuildingRefs.has(n.buildingId)) {
+        missingBuildingRefs.add(n.buildingId);
+        issues.push({
+          path: `npcs[${i}].buildingId`,
+          message:
+            `"${n.name}" targets buildingId "${n.buildingId}" but no ` +
+            `such building exists in town.json.`,
+        });
+      }
+      continue;
+    }
+    if (!slots.has(slotId)) {
+      const available = [...slots].map((s) => (s === "" ? '""' : `"${s}"`)).join(", ");
+      issues.push({
+        path: `npcs[${i}].slotId`,
+        message:
+          `"${n.name}" targets slotId "${slotId}" on building ` +
+          `"${n.buildingId}", but that variant only exposes slots: ` +
+          `${available || "(none)"}. Add a slotId frontmatter that ` +
+          `matches, or pick a variant with more npcPositions.`,
+      });
+    }
+  }
+  return issues;
+}
+
 export async function GET(req: Request) {
   const resolved = await resolveUser(req);
   if (!resolved) {
@@ -232,6 +324,21 @@ export async function POST(req: Request) {
         );
       }
     }
+  }
+
+  // Reject NPC rosters that reference unknown buildings, unknown slot
+  // ids, or double-book a slot. Silently accepting these was the source
+  // of "I authored 3 NPCs in this building but only one appears" —
+  // extras with slotIds that don't exist on the variant have no place
+  // to stand, and two NPCs on the same (buildingId, slotId) collapse to
+  // the first row via getNpcByBuildingAndSlot's .find(). Validate here,
+  // before applyTownShape mutates the persisted plot.
+  const npcIssues = validateNpcSlots(parsed.buildings, parsed.customPlots, parsed.npcs);
+  if (npcIssues.length > 0) {
+    return NextResponse.json(
+      { error: "npc-slot-validation-failed", issues: npcIssues },
+      { status: 400 },
+    );
   }
 
   const r = await resolveTownForOwner(req, resolved.user.id);

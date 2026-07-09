@@ -297,11 +297,26 @@
           "vibe": "colorful, sticky-noted, slightly loud",
           "paletteAccent": "#e85a8a",
           "exteriorSprite": "exteriors/office/office-example-2.png",
-          "npcPosition": {
-            "tx": 9,
-            "ty": 7,
-            "label": "marketer"
-          }
+          "npcPositions": [
+            {
+              "id": "",
+              "tx": 9,
+              "ty": 7,
+              "label": "marketer"
+            },
+            {
+              "id": "left",
+              "tx": 4,
+              "ty": 7,
+              "label": "cofounder"
+            },
+            {
+              "id": "right",
+              "tx": 14,
+              "ty": 7,
+              "label": "advisor"
+            }
+          ]
         },
         {
           "id": "office.the-headset-desk",
