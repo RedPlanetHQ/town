@@ -232,11 +232,20 @@
           "vibe": "clean, slide-deck open, two coffees on the table",
           "paletteAccent": "#4a6a8a",
           "exteriorSprite": "exteriors/office/office-example-1.png",
-          "npcPosition": {
-            "tx": 14,
-            "ty": 5,
-            "label": "consultant"
-          }
+          "npcPositions": [
+            {
+              "id": "",
+              "tx": 14,
+              "ty": 5,
+              "label": "consultant"
+            },
+            {
+              "id": "second",
+              "tx": 11,
+              "ty": 5,
+              "label": "consultant"
+            }
+          ]
         },
         {
           "id": "office.the-trading-floor",
@@ -434,11 +443,20 @@
           "vibe": "blinking LEDs, cold air, low fan-hum",
           "paletteAccent": "#3a5a4a",
           "exteriorSprite": "exteriors/office/condo-8.png",
-          "npcPosition": {
-            "tx": 13,
-            "ty": 4,
-            "label": "sysadmin"
-          }
+          "npcPositions": [
+            {
+              "id": "",
+              "tx": 13,
+              "ty": 4,
+              "label": "sysadmin"
+            },
+            {
+              "id": "second",
+              "tx": 8,
+              "ty": 4,
+              "label": "sysadmin"
+            }
+          ]
         },
         {
           "id": "workshop.the-drawing-board",
@@ -619,11 +637,20 @@
           "vibe": "dim, box-stacked, paper-smelling",
           "paletteAccent": "#5a4a3a",
           "exteriorSprite": "exteriors/library/generic-building-condo-6.png",
-          "npcPosition": {
-            "tx": 5,
-            "ty": 7,
-            "label": "archivist"
-          }
+          "npcPositions": [
+            {
+              "id": "",
+              "tx": 5,
+              "ty": 7,
+              "label": "archivist"
+            },
+            {
+              "id": "second",
+              "tx": 10,
+              "ty": 7,
+              "label": "archivist"
+            }
+          ]
         }
       ],
       "interior": {
