@@ -11,6 +11,7 @@
 //   town login      Authenticate with CORE (saves a PAT to ~/.town/config.json).
 //   town init       Hint alias — points users at `town new` / `town clone`.
 //   town generate   Generate a pixel-art PNG (exterior|interior) for a custom plot.
+//   town test       Probe NPC prompts locally (set-key, npc).
 
 import { Command } from "commander";
 import { existsSync } from "node:fs";
@@ -24,6 +25,7 @@ import { registerClone } from "./commands/clone.js";
 import { registerDelete } from "./commands/delete.js";
 import { registerCatalog } from "./commands/catalog.js";
 import { registerGenerate } from "./commands/generate.js";
+import { registerTest } from "./commands/test.js";
 
 import { getConfig } from "./config.js";
 import { readTownJson } from "./shared/town-io.js";
@@ -43,6 +45,7 @@ registerClone(program);
 registerDelete(program);
 registerCatalog(program);
 registerGenerate(program);
+registerTest(program);
 
 // Bare `town`: if we're inside a town folder, drop into the chat
 // surface. Otherwise fall through to Commander's default help.

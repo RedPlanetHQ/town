@@ -18,6 +18,46 @@ export interface TownConfig {
     /** The CORE PAT. Town's `/api/*` accepts this directly as a Bearer. */
     pat: string;
   };
+  /** Keys used by `town test npc` to talk to the model. Env vars always
+   *  win over these — the config is a convenience so users don't have
+   *  to export a key in every shell. File is chmod 0600. */
+  llm?: {
+    /** Which provider to use when both keys are set. Optional. */
+    provider?: "anthropic" | "openai";
+    anthropicKey?: string;
+    openaiKey?: string;
+  };
+}
+
+/** Populate process.env from the config file for any key the shell
+ *  hasn't already set. Env always wins. Call this at the top of
+ *  commands that resolve an LLM. */
+export function hydrateEnvFromConfig(): void {
+  const cfg = getConfig();
+  if (!cfg.llm) return;
+  if (cfg.llm.anthropicKey && !process.env.ANTHROPIC_API_KEY) {
+    process.env.ANTHROPIC_API_KEY = cfg.llm.anthropicKey;
+  }
+  if (cfg.llm.openaiKey && !process.env.OPENAI_API_KEY) {
+    process.env.OPENAI_API_KEY = cfg.llm.openaiKey;
+  }
+  if (cfg.llm.provider && !process.env.LLM_PROVIDER) {
+    process.env.LLM_PROVIDER = cfg.llm.provider;
+  }
+}
+
+/** Persist a key for the given provider, and set it as the preferred
+ *  provider so a subsequent call picks it up without an env override. */
+export function setLlmKey(
+  provider: "anthropic" | "openai",
+  key: string,
+): TownConfig {
+  const next = getConfig();
+  const llm = { ...(next.llm ?? {}) };
+  if (provider === "anthropic") llm.anthropicKey = key;
+  else llm.openaiKey = key;
+  llm.provider = provider;
+  return updateConfig({ llm });
 }
 
 export function getConfigPath(): string {
