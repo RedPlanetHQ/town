@@ -1,6 +1,6 @@
 {
   "id": "cmr603hy8001kpm2hnf0xwd3l",
-  "description": "Welcome to AI Startup Town — sharpen your startup with seven advisors modeled on the people who've coached thousands of founders. Start at the Welcome Room: tell Ivy your idea and what you're stuck on, and she'll send you to the right advisor.",
+  "description": "Welcome to AI Startup Town — build a real startup deck with seven advisors modeled on the people who've coached thousands of founders. Start at the Welcome Room: Sam sets up your living deck and points you to the right advisor. Every conversation writes another section.",
   "buildings": [
     {
       "id": "home",
@@ -43,6 +43,12 @@
       "plotKey": "workshop",
       "variantId": "workshop.the-server-closet",
       "label": "The Engineering Bay"
+    },
+    {
+      "id": "grit",
+      "plotKey": "gym",
+      "variantId": "gym.the-iron-room",
+      "label": "The Proving Ground"
     }
   ]
 }

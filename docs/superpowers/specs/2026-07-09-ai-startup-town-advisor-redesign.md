@@ -1,207 +1,182 @@
-# AI Startup Town — Advisor Concierge Redesign
+# AI Startup Town — Advisor + Living Deck Redesign
 
 **Date:** 2026-07-09
-**Status:** Approved, implementing
+**Status:** Approved, implementing (v2 — deck restored)
 **Town:** `towns/ai-startup-town/`
+**Town owner:** `core-support` (has the CORE Google Docs integration
+connected). All deck tool calls run under the owner account, so the flow works
+for guests too — the visitor's own account is never used.
 
 ## Goal
 
-Turn AI Startup Town from a **pitch-deck factory** into a **conversational
-advisor town**. Today every NPC is gated on a shared Google Doc "deck": the
-receptionist clones it, seven "cofounders" each edit one section. That
-machinery (a) requires the CORE Google Docs integration to be connected, so it
-does not work in local guest mode, and (b) buries the actual value — the
-questions — under doc-editing plumbing.
+Keep the town's **living Google-Doc pitch deck** as the payoff, but upgrade
+everything around it. A concierge (**Sam**) onboards the visitor, explains the
+town in plain language, creates and shares their deck, and routes them to the
+best-fit **advisor**. Each advisor runs a real **office-hours** conversation on
+one section and writes that section into the shared doc. By the end the visitor
+has one comprehensive document covering every aspect of their startup.
 
-The redesign keeps the valuable part (the sharp, section-specific questions)
-and deletes the plumbing. A concierge routes each visitor to the best-fit
-**advisor**; each advisor runs a real **office-hours** conversation. Zero
-external integrations required.
+This restores the original Google-Doc mechanic (v1 of this spec removed it);
+this version brings it back with the naming, persona, routing, and office-hours
+improvements layered on.
 
-## Roster (7 buildings, 7 NPCs)
+## Roster — 8 NPCs, 8 buildings, one shared deck
 
-| Building | NPC | Helps with |
+| Building | NPC (advisor) | Deck section |
 |---|---|---|
-| The Welcome Room | **Ivy** *(was Sam)* | Concierge — routes to the right advisor |
-| The Founder's Loft | **Paul Graham** | Founder story & insight |
-| The Case Study Room | **Ali Rowghani** | The problem & why now |
-| **The Marketing Studio** *(was The Brand Studio)* | **Garry Tan** | Positioning & marketing |
-| The Engineering Bay | **Diana Hu** | Technical architecture & scale |
-| The War Room | **Michael Seibel** | Traction & the one metric |
-| The GTM Booth | **Dalton Caldwell** | Distribution & first 100 users |
+| The Welcome Room | **Sam** | *(onboards, creates & shares deck, routes)* |
+| The Founder's Loft | **Paul Graham** | Founder Story & Insight |
+| The Case Study Room | **Ali Rowghani** | The Problem & Why Now |
+| The Marketing Studio | **Garry Tan** | Positioning & Marketing |
+| The Engineering Bay | **Diana Hu** | Technical Architecture & Scale |
+| The War Room | **Michael Seibel** | Traction & North-Star Metric |
+| The GTM Booth | **Dalton Caldwell** | Distribution & First 100 Users |
+| The Proving Ground | **Brian Chesky** | Founder Grit & Why We Won't Quit |
+| — | *(founder writes it)* | The Ask |
 
-**Removed entirely:** the Cold-Plunge building and Bryan Johnson (wellness/
-longevity — the odd one out for a startup founder).
+Changes vs. the original town: "cofounder" → **advisor**; Garry moves from
+product/brand design to **positioning & marketing** (Brand Studio → **Marketing
+Studio**); Bryan Johnson (wellness) → **Brian Chesky** (credible founder-grit /
+"founder mode"); building relabelled Cold-Plunge → **The Proving Ground**.
 
-## Core mechanic changes
+## The living deck
 
-1. **No pitch deck.** Remove the `google-docs` integration block
-   (`clone_document`, `list_documents`, `replace_text`) from all frontmatter.
-   Keep `core.memory_search: true` so NPCs remember returning visitors.
-2. **Ivy = router.** She asks *what's the idea* and *what's your objective right
-   now*, then names the single best-fit advisor + where to find them, and notes
-   the visitor can roam. She produces no artifact.
-3. **Advisors = verbal office-hours coaches.** Each keeps its signature opening
-   question and its four beats — spoken as coaching questions, no writing, no
-   "answer all four or I won't proceed" gate, no "see the receptionist first"
-   block.
-4. **Hand-offs = soft peer suggestions.** An advisor may point to a relevant
-   peer when the visitor's need clearly shifts; no forced tour. Ivy is the hub.
-5. **"Advisor," never "cofounder"** — everywhere.
-6. **Authentic personas** — real bios/philosophy woven into each prompt (see
-   per-NPC notes).
+- **Title (deterministic):** `My Startup Deck — <Session key>`. Every NPC
+  computes the same title from the opaque per-visitor Session key in its prompt,
+  so they all find the same doc. Never verbalized.
+- **Template:** the existing hardcoded core-support template URL
+  `https://docs.google.com/document/d/1PoJx2e0o1l2UPQHvjG7-Cx0mL_G2ga_RQd3qWqtSTNo/edit`.
+  Sam clones it. **The template body must be updated by the town owner
+  (core-support) to the new skeleton** (new section titles + placeholders for
+  Garry/Marketing, Chesky/Proving Ground) — otherwise advisors' `replace_text`
+  targets won't resolve. Full skeleton lives in `SETUP.md`.
+- **Storage:** clones land in a `startups/` folder in the owner's Drive,
+  `makePublic: true`, exactly as before.
 
-## The Office-Hours Method (shared block in every advisor)
+## Sam — onboard → create deck → route
 
-Adapted from Garry Tan's `office-hours` skill (Startup mode). This section
-replaces the deleted "Working the deck" section in each advisor MDX.
+Sam keeps the name **Sam** and owns no section. Behavior:
 
-- **One question at a time.** Ask a single question, then stop and wait. Never
-  fire the whole checklist at once.
-- **Specificity is currency.** Reject categories; demand the name, the number,
-  the actual moment. "Enterprises" is not an answer; "Sarah, ops lead at a
-  40-person logistics shop, 10 hrs/week on reconciliation" is.
-- **Push twice.** The polished answer comes first; the real one comes after a
-  second push.
-- **Take a position.** Say whether it will work and why — and what evidence
-  would change your mind. Never "interesting" or "that could work."
-- **Name the failure pattern** out loud: "solution in search of a problem,"
-  "hypothetical users," "waiting to launch until it's perfect."
-- **Escape hatch.** If the founder is impatient, ask the two most critical
-  questions, give your take, and let them go. On a second push-back, respect it.
-- **Close with an assignment.** End with one concrete thing to go do and a
-  reason to come back.
+1. **Explain the town in plain terms** (the visitor won't know how it works):
+   *"You're here to build your startup deck. I'll set you up a living Google Doc;
+   as you talk to each advisor around town they'll sharpen your thinking and
+   write their part into it. By the end you'll have one comprehensive doc on
+   every angle of your idea."*
+2. **Deck waterfall:** `list_documents` for `My Startup Deck — <key>`; if found,
+   reuse its URL; else `clone_document` (hardcoded template URL, that title,
+   `folderName: "startups"`, `makePublic: true`).
+3. **Share the URL** on its own line and set expectations (it fills in as they
+   go). Sam has `list_documents` + `clone_document` only — never `replace_text`.
+4. **Route:** ask what they're building and what they're stuck on (one question
+   at a time), then name the single best-fit advisor + building + one-line why.
+   Routing map (objective → advisor): story/insight → Paul Graham (Loft);
+   problem/why-now/strategy → Ali (Case Study Room); positioning/marketing →
+   Garry (Marketing Studio); tech/architecture/scaling → Diana (Engineering
+   Bay); metrics/traction → Michael (War Room); distribution/first users →
+   Dalton (GTM Booth); grit/resilience/staying power → Brian Chesky (Proving
+   Ground).
 
-**Per-advisor emphasis** (the six forcing questions map onto who owns what):
-- **Ali** — "status quo is the real competitor"; "why now."
-- **Michael** — "interest ≠ demand — behavior counts: paying, usage, panic when
-  it breaks."
-- **Dalton** — "desperate specificity" about users; "watch, don't demo."
-- **Garry** — positioning specificity; watch a first-run instead of demoing.
-- **Diana** — take a hard position on the architecture; name how it dies.
-- **PG** — the specific scene; determination; "make something people want."
+## Every advisor
 
-**Deliberately NOT ported** (coding-skill scaffolding that would break
-character): design-doc/wireframe output, "2-3 implementation approaches,"
-reading CLAUDE.md/codebase, cross-model agreement, the anti-code hard gate.
-Builder mode's full playfulness is dropped, keeping only a light touch: if a
-visitor is clearly a hobbyist exploring, the advisor stays encouraging rather
-than brutal.
+Each advisor MDX carries, in order:
 
-## Per-NPC spec
+1. **Persona** — authentic real-world bio/voice (from research).
+2. **Goal stated up front** — *"I'm here to help you nail your <section> — the
+   <X> part of your deck."* Clearly communicates what they refine.
+3. **Deck gate** — `list_documents` for the deck. If **not found**: *"Head to
+   Sam in the Welcome Room first; he sets up the deck we all write into. Come
+   back with the link and we'll do your <section>."* Advisors cannot clone (no
+   permission) and must not workshop the substance until the founder returns
+   with a URL.
+4. **Four beats** — the section's sub-questions (unchanged per advisor except
+   Garry/Chesky, below).
+5. **Office-hours method** — one question at a time; specificity is currency;
+   push twice; take a position; name the failure pattern; escape hatch for
+   impatience (give a verbal read, let them go — but only *write* to the doc
+   when all four beats are genuinely answered); close with an assignment.
+6. **Strict write gate + `replace_text`** — do not write until all four beats
+   land concretely in the conversation; then `replace_text` on their exact
+   placeholder. On a not-found/permission error, the deck is gone → send them
+   back to Sam. One replacement per conversation; placeholder gone on revisit →
+   done.
+7. **Hand-off after the section is written** ("done" = the doc was updated). The
+   post-write close names the **next advisor + building + section** in a fixed
+   tour order and tells the founder they can **teleport there with ⌘K (Cmd+K)**
+   — a real feature (`CommandBar.tsx` / `teleport.ts`). Tour order: Paul Graham
+   → Ali Rowghani → Garry Tan → Diana Hu → Michael Seibel → Dalton Caldwell →
+   Brian Chesky → (The Ask, self-written). Chesky closes by pointing at the Ask
+   and noting ⌘K can jump back to any advisor to sharpen a thin section. Sam also
+   mentions ⌘K when onboarding. Roaming stays free — the hand-off is a suggested
+   next step, not a gate.
 
-### Ivy — The Welcome Room (`npcs/welcome.mdx`)
-- **Persona:** warm, brief front-desk concierge. Fictional. Female (she/her).
-  Ex-founder who now likes meeting founders more than being one. Never workshops
-  the idea herself.
-- **Behavior:** greet → ask the idea (one question) → ask the current objective/
-  biggest blocker (one question) → name the single best-fit advisor + building +
-  one-line why → note they can roam. Uses the forcing-question lens only to
-  classify ("that's a demand question — Michael's your guy").
-- **Routing guide (objective → advisor):** story/why-you/insight → PG (Loft);
-  problem/why-now/strategy → Ali (Case Study Room); positioning/marketing/
-  messaging → Garry (Marketing Studio); tech/architecture/AI stack/scaling →
-  Diana (Engineering Bay); metrics/traction → Michael (War Room); distribution/
-  first users/channels → Dalton (GTM Booth).
-- **Permissions:** `core.memory_search: true` only. No integrations.
-- **Description:** *The friendly face at the front desk. Tell her your idea and
-  what you're stuck on right now, and she'll point you to the advisor who can
-  help most.*
+### Garry Tan — new section: Positioning & Marketing
+Beats: **Positioning** (what it is / who it's for / what it replaces, one line)
+· **The hook** (the one sentence that makes the right person lean in) · **The
+one word** (what users call it back) · **Launch move** (the marketing set-piece
+you lead with).
 
-### Paul Graham — The Founder's Loft (`npcs/loft.mdx`)
-- **Focus:** Founder Story & Insight. **Beats:** Scene · Insight ·
-  Founder-market fit · Early users.
-- **Bio to weave in:** cofounded Y Combinator (2005) and Viaweb (sold to
-  Yahoo); Lisp hacker; 200+ essays. Signatures: "make something people want,"
-  "do things that don't scale" (Airbnb, Stripe), "schlep blindness," maker's vs
-  manager's schedule; founder qualities — determination above all.
-- **Description:** *The guy who started Y Combinator. He'll help you find your
-  real founder story — what you made, who it's for, and the moment you knew it
-  mattered.*
+### Brian Chesky — new advisor: Founder Grit & Why We Won't Quit
+Airbnb cofounder/CEO; "founder mode"; survived 2008 (Obama O's / ramen-profitable)
+and the COVID collapse then IPO'd; "do things that don't scale" origin. Beats:
+**Why you** (the load-bearing reason you'll still be at this in 10 years) ·
+**Founder mode** (where you stay in the details instead of delegating the core)
+· **The crucible** (the worst moment you've survived or expect, and why it won't
+break you) · **Staying power** (what keeps you going when hype fades and
+competitors burn out). As the last advisor, Chesky closes by pointing the
+founder at **The Ask**, which they write themselves.
 
-### Ali Rowghani — The Case Study Room (`npcs/casestudy.mdx`)
-- **Focus:** The Problem & Why Now. **Beats:** Status quo · Friction · Why now ·
-  Strategic reframe.
-- **Bio:** Twitter's first CFO (2010–12) then COO (2012–14); 9 years at Pixar
-  (CFO + SVP Strategic Planning); CEO of YC Continuity; "How to Lead." Learned
-  from Steve Jobs: no "good enough" on communicating, motivating, and the
-  quality of your thinking. Emphasis: status quo is the real competitor; why now.
-- **Description:** *A seasoned strategy coach — Pixar CFO, then Twitter COO.
-  Talk to him to get crisp on the problem you solve and why now is its moment.*
+### `replaceText` format (unchanged mechanic)
+Block content only, no code fences; blank line after the date; underscores
+around the date (italic), double-asterisks around each beat label (bold):
 
-### Garry Tan — The Marketing Studio (`npcs/brand.mdx`)
-- **Focus (changed):** Positioning & Marketing (was Product & Brand Feel).
-  **New beats:** Positioning (what it is / who it's for / what it replaces, one
-  line) · The hook (the one sentence that makes someone lean in) · The one word
-  (what people call it back) · Launch move (the marketing set-piece you lead
-  with). Distinct from Ali (strategy) and Dalton (channels) — Garry owns the
-  message.
-- **Bio:** President & CEO of Y Combinator; founded Initialized Capital (early
-  Coinbase, Instacart, Flexport); cofounded Posterous (acq. Twitter); early
-  designer at Palantir (designed the logo); "no-signup instant first
-  experience"; "earnestness" separates founders who make it; big YouTube
-  presence. Design brain applied to messaging.
-- **Description:** *Designer-turned-YC-CEO. Show him your product and he'll
-  sharpen how you position and market it — the message that makes people
-  actually care.*
+```
+_<Advisor Name>, YYYY-MM-DD_
 
-### Diana Hu — The Engineering Bay (`npcs/engineering.mdx`)
-- **Focus:** Technical Architecture & Scale. **Beats:** Stack · Pipeline moat ·
-  Failure mode · The interesting bet.
-- **Bio:** Managing Partner at YC; founder & CTO of Escher Reality (AR, acquired
-  by Niantic — Pokémon Go), ran the AR platform; led data science at OnCue (sold
-  to Verizon); from Chile; Carnegie Mellon BS/MS in computer vision + ML.
-  Emphasis: take a hard position; name how it dies at 100x.
-- **Description:** *The technical one — built AR at Niantic, now a YC partner.
-  Walk her through how your AI product works and she'll stress-test the
-  architecture and how it scales.*
+**<Beat 1>.** <one to two sentences>
+**<Beat 2>.** <one to two sentences>
+**<Beat 3>.** <one to two sentences>
+**<Beat 4>.** <one to two sentences>
+```
 
-### Michael Seibel — The War Room (`npcs/warroom.mdx`)
-- **Focus:** Traction & North Star Metric. **Beats:** The one number · Weekly
-  delta · Receipts · What 10x would take.
-- **Bio:** cofounded Justin.tv and Twitch; ran Y Combinator for years. Emphasis:
-  interest ≠ demand; behavior counts — paying, usage, panic when it breaks; kill
-  vanity metrics.
-- **Description:** *Built Twitch, coached thousands of founders. He'll help you
-  find the one metric that actually matters and drop the vanity numbers.*
+## Permissions
 
-### Dalton Caldwell — The GTM Booth (`npcs/gtm.mdx`)
-- **Focus:** Distribution & First 100 Users. **Beats:** First 100 · Repeatable
-  channel · What we tried and killed · Unfair asset.
-- **Bio:** cofounded Imeem, App.net, Mixed Media Labs; decade as a YC partner on
-  "how to get your first users." Emphasis: desperate specificity about users;
-  watch, don't demo; "do things that don't scale."
-- **Description:** *The growth guy. He'll help you work out where your first
-  hundred users really come from — and which channel scales after that.*
+- **Sam:** `core.memory_search` + google-docs `list_documents`,
+  `clone_document`.
+- **Seven advisors:** `core.memory_search` + google-docs `list_documents`,
+  `replace_text` (no clone — a bug can't spawn duplicate decks).
 
 ## Town description (first-load welcome pitch)
 
-Add a `description` field to `town.json`. `town deploy` reads it (via
-`readTownJson`) and posts it as the town's stored description, which surfaces
-as the first-load dialogue on `/{slug}`. Copy:
+`town.json` `description`:
 
-> Welcome to AI Startup Town — sharpen your startup with seven advisors modeled
-> on the people who've coached thousands of founders. Start at the Welcome Room:
-> tell Ivy your idea and what you're stuck on, and she'll send you to the right
-> advisor.
+> Welcome to AI Startup Town — build a real startup deck with seven advisors
+> modeled on the people who've coached thousands of founders. Start at the
+> Welcome Room: Sam sets up your living deck and points you to the right
+> advisor. Every conversation writes another section.
 
 ## File changes
 
-- Rewrite 7 × `towns/ai-startup-town/npcs/*.mdx` (`welcome.mdx` → Ivy;
-  `brand.mdx` → Marketing Studio / Garry positioning).
-- **Delete** `towns/ai-startup-town/npcs/coldplunge.mdx`.
-- Edit `towns/ai-startup-town/town.json`: remove the `coldplunge` building;
-  relabel `brand` → `"The Marketing Studio"`; add the `description` field above.
-- Rewrite `towns/ai-startup-town/SETUP.md`: concierge model, drop all Google
-  Docs / template-doc / OAuth setup. Note the town now needs zero external
-  integrations.
+- Rewrite 8 × `towns/ai-startup-town/npcs/*.mdx` — re-add google-docs perms and
+  deck mechanics; `welcome.mdx` = Sam (onboard/create/route); `brand.mdx` =
+  Garry/Marketing; **add** `grit.mdx` = Brian Chesky.
+- `town.json`: re-add the Proving Ground building (`id: "grit"`, `plotKey:
+  "gym"`, `variantId: "gym.the-iron-room"`, label "The Proving Ground"); keep
+  "The Marketing Studio"; update `description`.
+- Rewrite `SETUP.md`: living-deck model, new doc title, new skeleton +
+  placeholders, note that core-support must update the template body and that
+  the flow needs no visitor-side integration.
 
 ## Deploy & test
 
-1. Redeploy to local dev server on `:3003`:
-   `town deploy --dir towns/ai-startup-town --slug ai-startup-town`.
-2. Confirm 7 NPCs / 7 buildings in the DB; Bryan and the Cold-Plunge gone.
-3. Guest-mode smoke test at
-   `http://localhost:3003/ai-startup-town?invite_code=DQM7W7`: chat Ivy → verify
-   she routes on objective; chat one advisor → verify one-question-at-a-time,
-   specificity push, closing assignment, and no deck/Google-Docs references.
+1. Redeploy to local `:3003`: `town deploy --dir towns/ai-startup-town --slug
+   ai-startup-town`.
+2. Confirm 8 NPCs / 8 buildings; Chesky/Proving Ground present; Marketing Studio
+   label.
+3. Prompt-behavior smoke test via `town test npc`: Sam explains + (attempts)
+   clone + routes; an advisor states its goal, gates on the deck when absent,
+   and runs office hours.
+4. **Runtime caveat:** the actual doc create/write executes under core-support's
+   integration on the deployed town (prod). Locally the town owner differs, so
+   the real `clone_document`/`replace_text` calls may not resolve — local tests
+   cover prompt behavior; the live deck-write is validated on the core-support
+   deployment once the template body is updated.

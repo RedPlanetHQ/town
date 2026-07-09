@@ -1,67 +1,192 @@
 # AI Startup Town — deployment setup
 
-Content-only town, deploys via `town deploy` like the others. **No external
-integrations required** — every NPC is a conversational advisor, so the town
-works in guest mode out of the box.
+Content-only town, deploys via `town deploy` like the others. The working
+artifact is a **living Google Doc — the visitor's startup deck.** Sam creates
+it; each advisor writes one section into it.
+
+**Town owner:** `core-support`. The CORE **Google Docs integration** must be
+connected on that account (OAuth — Docs + Drive scopes). Because every NPC tool
+call runs under the town owner, **the deck flow works for guests too** — the
+visitor's own Google account is never touched.
 
 ## The roster
 
-| Building | NPC | Helps with |
+| Building | NPC | Deck section |
 |---|---|---|
-| The Welcome Room | **Ivy** | Concierge — routes you to the right advisor |
-| The Founder's Loft | **Paul Graham** | Founder story & insight |
-| The Case Study Room | **Ali Rowghani** | The problem & why now |
-| The Marketing Studio | **Garry Tan** | Positioning & marketing |
-| The Engineering Bay | **Diana Hu** | Technical architecture & scale |
-| The War Room | **Michael Seibel** | Traction & the one metric |
-| The GTM Booth | **Dalton Caldwell** | Distribution & first 100 users |
+| The Welcome Room | **Sam** | *(onboards, creates & shares deck, routes)* |
+| The Founder's Loft | **Paul Graham** | Founder Story & Insight |
+| The Case Study Room | **Ali Rowghani** | The Problem & Why Now |
+| The Marketing Studio | **Garry Tan** | Positioning & Marketing |
+| The Engineering Bay | **Diana Hu** | Technical Architecture & Scale Plan |
+| The War Room | **Michael Seibel** | Traction & North-Star Metric |
+| The GTM Booth | **Dalton Caldwell** | Distribution & First 100 Users |
+| The Proving Ground | **Brian Chesky** | Founder Grit & Why We Won't Quit |
+| — | *(founder writes it)* | The Ask |
 
-Ivy is the concierge: she asks what the founder is building and what they're
-stuck on, then sends them to the single best-fit advisor. The six advisors each
-own one topic and run a real office-hours conversation on it.
+Sam explains the town, sets up the deck, and routes the visitor to the best-fit
+advisor. The seven advisors each own one section and run an office-hours
+conversation before writing it.
 
-## How it works
+## Roles are separate
 
-There is no pitch deck and no document. Each advisor is a self-contained
-persona defined entirely by its `npcs/*.mdx` prompt. Ivy routes; the advisors
-coach. Nothing is written to any external service — the only permission any NPC
-holds is `core.memory_search`, used to recognise a returning visitor.
+- **Sam** owns the deck lifecycle (create it once per visitor). He is the only
+  NPC with `clone_document`, and he never has `replace_text` — so a hallucinated
+  call can't corrupt a section.
+- **The seven advisors** each edit one section. They have `list_documents` +
+  `replace_text` — no clone permission, so a bug can't spawn duplicate decks.
 
-## The office-hours method
+## The deck
 
-Every advisor runs its conversation the same disciplined way (adapted from the
-YC office-hours playbook), which is what makes them feel like real partners
-rather than themed chatbots:
+- **Title (deterministic):** `My Startup Deck — <Session key>`. Every NPC
+  computes the same title from the opaque per-visitor Session key in its prompt,
+  so they all find the same doc. Never verbalized.
+- **Template:** hardcoded in Sam's `clone_document` call:
+  `https://docs.google.com/document/d/1PoJx2e0o1l2UPQHvjG7-Cx0mL_G2ga_RQd3qWqtSTNo/edit`.
+  It must be readable by the town owner (they own it, it's shared with them, or
+  it's public "anyone with the link can view").
+- **Clones** land in a `startups/` folder at the root of the owner's Drive
+  (created lazily on first clone), `makePublic: true`, so the founder's URL just
+  works.
 
-- **One question at a time** — ask, then wait; never dump a checklist.
-- **Specificity is currency** — demand the name, the number, the actual moment.
-- **Push twice** — the polished answer first, the true one after a second push.
-- **Take a position** — say whether it works and what evidence would change it;
-  never "interesting" or "could work."
-- **Name the failure pattern** — "solution in search of a problem,"
-  "hypothetical users," "waiting to launch until it's perfect."
-- **Escape hatch** — if the founder is impatient, ask the two most critical
-  questions, give a read, and let them go.
-- **Close with an assignment** — one concrete thing to do and a reason to come
-  back.
+## ⚠️ Keep the template in sync with the sections
 
-Each advisor also carries its own four **beats** — the specific sub-questions it
-walks the founder through (e.g. PG: Scene · Insight · Founder-market fit · Early
-users). The beats are spoken coaching prompts, not form fields.
+Each advisor replaces an exact placeholder string via `replace_text`. **The
+template body must contain those exact placeholders** or the replacement fails
+and the advisor sends the founder back to Sam. If you change an advisor's name,
+building, or section, update the template to match. The current placeholders:
 
-## Deploy
+- `[[to be filled by Paul Graham at the Founder's Loft]]`
+- `[[to be filled by Ali Rowghani at the Case Study Room]]`
+- `[[to be filled by Garry Tan at the Marketing Studio]]`
+- `[[to be filled by Diana Hu at the Engineering Bay]]`
+- `[[to be filled by Michael Seibel at the War Room]]`
+- `[[to be filled by Dalton Caldwell at the GTM Booth]]`
+- `[[to be filled by Brian Chesky at the Proving Ground]]`
 
-```bash
-cd towns/ai-startup-town
-town deploy
+## One-time setup for the town owner
+
+1. **Connect Google Docs to CORE** for the `core-support` account (OAuth; click
+   past the "Google hasn't verified this app" warning → Advanced → Go to app).
+2. **Verify template access.** Open the template URL above while signed in as
+   the owner; make sure the owner can read it, and that its body matches the
+   skeleton below (placeholders included).
+3. **Deploy:** `cd towns/ai-startup-town && town deploy`.
+
+## How doc state flows
+
+**Sam (once per visitor):**
+1. `list_documents` — look for `My Startup Deck — <Session key>`. If it exists,
+   reuse its URL.
+2. If not found: `clone_document` with the hardcoded template URL, `title: "My
+   Startup Deck — <Session key>"`, `folderName: "startups"`, `makePublic: true`.
+3. Share the URL and route the founder to an advisor.
+
+**Each advisor (per section):**
+1. `list_documents` for `My Startup Deck — <Session key>`.
+2. If not found: redirect the founder to Sam. Advisors cannot clone and must not
+   workshop the substance until the founder returns with a URL.
+3. If found: work the four beats (strict completion gate), then `replace_text`
+   on their placeholder with a beat-labeled paragraph. If `replace_text` errors,
+   the deck is gone — send the founder back to Sam.
+
+The **Session key** is the opaque per-visitor id every NPC receives in its
+system prompt (`visitorSubjectKey` in `/api/npc-chat`, matching the endUserId
+that stamps memory episodes). Deterministic naming means every NPC computes the
+same doc name.
+
+## Template doc skeleton
+
+Create/maintain the template at the hardcoded URL with this body. Each advisor
+replaces exactly one placeholder with their signed, beat-structured paragraph.
+
+```
+[Banner image at top]
+
+[[Founder's one-liner]]
+
+A startup deck workshopped with seven advisors you'll never get in one room.
+Each section is signed by the advisor who wrote it.
+
+———
+
+Founder Story & Insight — Paul Graham
+The moment you realized this was the problem worth your life. One scene, one
+insight, no jargon.
+Beats: Scene · Insight · Founder-market fit · Early users
+[[to be filled by Paul Graham at the Founder's Loft]]
+
+———
+
+The Problem & Why Now — Ali Rowghani
+What breaks in the world today, and what changed in the last 18 months that
+makes this finally possible.
+Beats: Status quo · Friction · Why now · Strategic reframe
+[[to be filled by Ali Rowghani at the Case Study Room]]
+
+———
+
+Positioning & Marketing — Garry Tan
+What it is, who it's for, and the message that makes people care.
+Beats: Positioning · The hook · The one word · Launch move
+[[to be filled by Garry Tan at the Marketing Studio]]
+
+———
+
+Technical Architecture & Scale Plan — Diana Hu
+The model stack, the moat in the pipeline, and how this survives at 100x load.
+Beats: Stack · Pipeline moat · Failure mode · The interesting bet
+[[to be filled by Diana Hu at the Engineering Bay]]
+
+———
+
+Traction & North-Star Metric — Michael Seibel
+Receipts. The one number you'd bet the company on, and what it's doing week
+over week.
+Beats: The one number · Weekly delta · Receipts · What 10x would take
+[[to be filled by Michael Seibel at the War Room]]
+
+———
+
+Distribution & First 100 Users — Dalton Caldwell
+How the first hundred showed up, and the repeatable channel behind the next
+ten thousand.
+Beats: First 100 · Repeatable channel · What we tried and killed · Unfair asset
+[[to be filled by Dalton Caldwell at the GTM Booth]]
+
+———
+
+Founder Grit & Why We Won't Quit — Brian Chesky
+The reason you'll still be standing in ten years, and the moment that proves it.
+Beats: Why you · Founder mode · The crucible · Staying power
+[[to be filled by Brian Chesky at the Proving Ground]]
+
+———
+
+The Ask
+The round, the use of funds, the next milestone, and what you need from the
+reader specifically.
+Beats: Round · Use of funds · Next milestone · Specific ask of the reader
+[[you fill this yourself — round, use of funds, next milestone]]
+
+———
+
+Workshopped in AI Startup Town.
 ```
 
-That's it. No OAuth, no template doc, no integration to connect. The town
-renders and every advisor chats immediately.
+## Section attribution format
 
-## Guest access
+Each advisor replaces their placeholder with:
 
-The town is private by default. Share the invite link
-`/{slug}?invite_code=<shareCode>` for guest (read-only) visitors, or make the
-town public. Guests can walk the map and chat with every advisor; no sign-in
-required.
+```
+_<Advisor Name>, YYYY-MM-DD_
+
+**<Beat 1>.** <one to two sentences in their voice>
+**<Beat 2>.** <one to two sentences>
+**<Beat 3>.** <one to two sentences>
+**<Beat 4>.** <one to two sentences>
+```
+
+Beat labels match the section's declared beats verbatim, in order. Never
+overwrites the heading, italic prompt, or Beats line. Never edits another
+advisor's section. Never re-edits their own on a revisit (the placeholder is
+gone; nothing to replace).
