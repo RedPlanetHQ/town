@@ -35,6 +35,17 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Subscription plan slug. Drives tier-based defaults when limits are
+  // (re)initialized. Free is the only tier for now; upgrade paths land
+  // when the purchase flow ships.
+  tier                String @default("free")
+  // Effective account-wide caps. Enforced directly at write time — the
+  // current value on this row IS the cap; there is no additive math.
+  // Grants (purchases / milestones / admin) mutate these in place and
+  // append an EntitlementGrant row for audit.
+  maxTowns            Int    @default(3)
+  maxTotalCustomPlots Int    @default(20)
+
   sessions             Session[]
   townEvents           TownEventRow[]
   integrations         IntegrationRow[]
@@ -45,6 +56,7 @@ model User {
   sprites              Sprite[]
   creatorConversations CreatorConversation[]
   tokenUsage           TokenUsage[]
+  entitlementGrants    EntitlementGrant[]
 
   @@unique([coreUserId, workspaceId])
   @@index([email])
@@ -95,6 +107,20 @@ model Town {
   // drops entries.
   pendingChanges Json          @default("[]")
 
+  // Town-scoped progression. `level` starts at 1 and only advances via
+  // XP thresholds — the grant flow (purchases, milestones, level-ups)
+  // ships later; for now these are just storage.
+  level Int @default(1)
+  xp    Int @default(0)
+
+  // Per-town effective caps. Same model as the User row: the current
+  // value here IS the cap. Level-ups, per-town milestones, and per-town
+  // purchases will mutate these in place when the grant flow lands.
+  maxNpcs         Int @default(10)
+  maxBuildings    Int @default(10)
+  maxCustomPlots  Int @default(5)
+  maxActiveGuests Int @default(10)
+
   aura                 Aura?
   plot                 PlotRow?
   npcs                 Npc[]
@@ -103,6 +129,7 @@ model Town {
   creatorConversations CreatorConversation[]
   tokenUsage           TokenUsage[]
   visits               TownVisit[]
+  entitlementGrants    EntitlementGrant[]
   // Per-town catalog of visitor tags + SVG item templates. Authored under
   // the town deployment directory (tags inline in town.json, items as
   // items/manifest.json + items/<id>.svg) and uploaded via /api/town.
@@ -624,5 +651,51 @@ model CreatorMessage {
   createdAt      DateTime            @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+// Append-only log of entitlement changes. One row per grant (or
+// revocation, via negative `delta`). Never mutated after insert.
+//
+// The current effective cap for a field lives on the entity itself
+// (User.maxTowns, Town.maxNpcs, etc.). This table is history — used
+// for audit, support ("why is my cap 12 instead of 10?"), and cheap
+// reconstruction if the on-entity value ever drifts.
+//
+// `target` names both the entity kind and the field, e.g.:
+//   "user.maxTowns"              — bump on User row
+//   "user.maxTotalCustomPlots"   — bump on User row
+//   "town.maxNpcs"               — bump on Town row (townId required)
+//   "town.maxBuildings"          — bump on Town row (townId required)
+//   "town.maxCustomPlots"        — bump on Town row (townId required)
+//   "town.maxActiveGuests"       — bump on Town row (townId required)
+//   "town.auraMax"               — bump on Aura row (townId required)
+//
+// `source` enumerates why the grant fired:
+//   "tier_upgrade" | "purchase" | "milestone" | "level_up" | "admin_grant"
+//
+// `ref` carries a source-specific identifier for support:
+//   stripe payment intent id, milestone name, target level number, admin note id.
+//
+// Grants only exist for *changes from default*. Baseline seeds at
+// user/town creation do NOT insert a row here — the schema defaults
+// are the source of truth for the starting caps.
+model EntitlementGrant {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  townId String?
+  town   Town?  @relation(fields: [townId], references: [id], onDelete: Cascade)
+
+  target String
+  delta  Int
+
+  source String
+  reason String?
+  ref    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([townId, createdAt])
 }
 

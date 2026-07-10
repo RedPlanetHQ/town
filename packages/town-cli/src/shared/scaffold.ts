@@ -78,15 +78,18 @@ export async function postJson<T>(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    let parsed: { error?: string } = {};
+    let parsed: { error?: string; detail?: string } = {};
     try {
-      parsed = (await res.json()) as { error?: string };
+      parsed = (await res.json()) as { error?: string; detail?: string };
     } catch {
       // ignore
     }
-    throw new Error(
-      `POST ${url} → ${res.status} ${parsed.error ?? "unknown error"}`,
-    );
+    // Prefer the server's human-readable `detail` when present — that's
+    // where entitlement gates ("You've reached your limit of 3 towns…")
+    // and other structured 4xx paths put their user-facing message.
+    // Fall back to the machine `error` code, then a generic label.
+    const msg = parsed.detail ?? parsed.error ?? "unknown error";
+    throw new Error(`POST ${url} → ${res.status} ${msg}`);
   }
   return (await res.json()) as T;
 }

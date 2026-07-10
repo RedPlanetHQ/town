@@ -345,6 +345,110 @@ export async function POST(req: Request) {
   if (!r.ok) return NextResponse.json(r.body, { status: r.status });
   const townId = r.townId;
 
+  // Entitlement gate. Every cap read is a straight lookup — the current
+  // value on the User / Town row IS the effective cap. The grant flow
+  // (purchases, milestones, level-ups) will mutate these fields in place
+  // when it lands; enforcement code stays this simple.
+  {
+    const [town, user] = await Promise.all([
+      prisma.town.findUnique({
+        where: { id: townId },
+        select: {
+          maxNpcs: true,
+          maxBuildings: true,
+          maxCustomPlots: true,
+        },
+      }),
+      prisma.user.findUnique({
+        where: { id: resolved.user.id },
+        select: { maxTotalCustomPlots: true },
+      }),
+    ]);
+    if (!town || !user) {
+      return NextResponse.json({ error: "no-town-row" }, { status: 409 });
+    }
+
+    // Issue shape mirrors the existing `validation-failed` / `npc-slot-
+    // validation-failed` responses so the CLI's deploy handler renders
+    // path + message without special-casing. Richer fields (requested,
+    // limit) ride along for programmatic callers.
+    const capIssues: Array<{
+      path: string;
+      message: string;
+      requested: number;
+      limit: number;
+    }> = [];
+
+    if (parsed.buildings.length > town.maxBuildings) {
+      capIssues.push({
+        path: "buildings",
+        message: `This town allows up to ${town.maxBuildings} building${town.maxBuildings === 1 ? "" : "s"} — you sent ${parsed.buildings.length}.`,
+        requested: parsed.buildings.length,
+        limit: town.maxBuildings,
+      });
+    }
+    if (parsed.npcs && parsed.npcs.length > town.maxNpcs) {
+      capIssues.push({
+        path: "npcs",
+        message: `This town allows up to ${town.maxNpcs} NPC${town.maxNpcs === 1 ? "" : "s"} — you sent ${parsed.npcs.length}.`,
+        requested: parsed.npcs.length,
+        limit: town.maxNpcs,
+      });
+    }
+    const incomingCustomPlots = parsed.customPlots?.length ?? 0;
+    if (incomingCustomPlots > town.maxCustomPlots) {
+      capIssues.push({
+        path: "customPlots",
+        message: `This town allows up to ${town.maxCustomPlots} custom plot${town.maxCustomPlots === 1 ? "" : "s"} — you sent ${incomingCustomPlots}.`,
+        requested: incomingCustomPlots,
+        limit: town.maxCustomPlots,
+      });
+    }
+
+    // Account-wide custom-plot cap: incoming + everything on the user's
+    // OTHER towns. jsonb_array_length reads the length without pulling
+    // the blob into JS. `PlotRow.json` is jsonb; missing customPlots
+    // field falls back to an empty array so unmigrated rows count as 0.
+    if (incomingCustomPlots > 0) {
+      const rows = await prisma.$queryRaw<Array<{ total: number }>>`
+        SELECT COALESCE(
+          SUM(jsonb_array_length(COALESCE(pr."json"->'customPlots', '[]'::jsonb))),
+          0
+        )::int AS total
+        FROM "PlotRow" pr
+        INNER JOIN "Town" t ON t.id = pr."townId"
+        WHERE t."ownerId" = ${resolved.user.id} AND t.id <> ${townId}
+      `;
+      const othersTotal = rows[0]?.total ?? 0;
+      const postDeployTotal = othersTotal + incomingCustomPlots;
+      if (postDeployTotal > user.maxTotalCustomPlots) {
+        capIssues.push({
+          path: "customPlots.total",
+          message: `You've reached your account-wide custom plot limit of ${user.maxTotalCustomPlots} — this deploy would bring the total to ${postDeployTotal}. Delete unused custom plots or upgrade to make room.`,
+          requested: postDeployTotal,
+          limit: user.maxTotalCustomPlots,
+        });
+      }
+    }
+
+    if (capIssues.length > 0) {
+      return NextResponse.json(
+        {
+          error: "entitlement-cap-exceeded",
+          // Top-level `detail` gives the CLI's quiet path (runDeployQuiet)
+          // a one-line summary; issues carry the specifics for the
+          // verbose renderer used by `town deploy`.
+          detail:
+            capIssues.length === 1
+              ? capIssues[0]!.message
+              : `Deploy blocked by ${capIssues.length} cap${capIssues.length === 1 ? "" : "s"} — see issues.`,
+          issues: capIssues,
+        },
+        { status: 403 },
+      );
+    }
+  }
+
   const input: TownShape = {
     buildings: parsed.buildings,
     customPlots: (parsed.customPlots ?? []) as CustomPlot[],

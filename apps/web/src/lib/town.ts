@@ -93,6 +93,30 @@ export async function pickTown({ ownerId, name, slug: explicitSlug }: PickTownIn
     throw err;
   }
 
+  // Cap gate — count the owner's existing towns against their per-account
+  // limit. `User.maxTowns` seeds to the free-tier default (3) via the
+  // schema; purchases / tier upgrades / milestones will mutate it in
+  // place when the grant flow lands.
+  const owner = await prisma.user.findUnique({
+    where: { id: ownerId },
+    select: { maxTowns: true },
+  });
+  if (!owner) {
+    const err = new Error("owner-missing") as Error & { code: string };
+    err.code = "owner-missing";
+    throw err;
+  }
+  const existing = await prisma.town.count({ where: { ownerId } });
+  if (existing >= owner.maxTowns) {
+    const err = new Error("town-limit-reached") as Error & {
+      code: string;
+      limit: number;
+    };
+    err.code = "town-limit-reached";
+    err.limit = owner.maxTowns;
+    throw err;
+  }
+
   let town: Awaited<ReturnType<typeof prisma.town.create>> | null = null;
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 5; attempt++) {

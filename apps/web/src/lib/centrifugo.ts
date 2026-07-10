@@ -69,6 +69,47 @@ export async function mintSubscribeToken({
   return jwt.sign(getSecret());
 }
 
+// Read the number of connected clients + distinct users on a channel via
+// Centrifugo's `presence_stats` endpoint. Returns `null` when the API
+// isn't configured or the request fails — callers must treat that as
+// "cannot enforce" and fail open (better to over-allow one visitor than
+// lock everyone out on a Centrifugo blip).
+export async function presenceStats(
+  channel: string,
+): Promise<{ numClients: number; numUsers: number } | null> {
+  const base = process.env.CENTRIFUGO_API_BASE;
+  const key = process.env.CENTRIFUGO_API_KEY;
+  if (!base || !key) return null;
+  try {
+    const res = await fetch(`${base}/api/presence_stats`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-API-Key": key,
+      },
+      body: JSON.stringify({ channel }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn(
+        `[centrifugo.presenceStats] non-OK status=${res.status} body=${body.slice(0, 200)}`,
+      );
+      return null;
+    }
+    const body = (await res.json()) as {
+      result?: { num_clients?: number; num_users?: number };
+    };
+    if (!body.result) return null;
+    return {
+      numClients: body.result.num_clients ?? 0,
+      numUsers: body.result.num_users ?? 0,
+    };
+  } catch (e) {
+    console.warn("[centrifugo.presenceStats] network error", e);
+    return null;
+  }
+}
+
 // HTTP publish via Centrifugo's API endpoint. Wraps the v2 endpoint:
 // `POST {base}/api/publish` with API key in the Authorization header.
 export async function publish(channel: string, data: unknown): Promise<void> {

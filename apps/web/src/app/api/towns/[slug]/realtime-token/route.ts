@@ -15,6 +15,7 @@ import {
   mintConnectionToken,
   mintSubscribeToken,
   positionsChannel,
+  presenceStats,
   userInboxChannel,
 } from "@/lib/centrifugo";
 import { OWNER_DEFAULT_CHARACTER } from "@/lib/characters";
@@ -67,6 +68,33 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
       displayName = visitor.n;
     }
     character = visitor.ch;
+
+    // Active-guest cap. Owner is exempt (handled by the early return
+    // above). Presence is polled on the positions channel — every viewer
+    // (owner + guests) subscribes there once connected. We can't tell
+    // from `num_users` alone whether the owner is currently among them,
+    // so we treat the cap as "distinct non-owner viewers ≤ maxActiveGuests"
+    // by allowing an extra +1 slot for the potential owner presence.
+    // When Centrifugo isn't reachable, `presenceStats` returns null and
+    // we fail open — a launch-time Centrifugo blip must not lock the town.
+    const stats = await presenceStats(positionsChannel(slug));
+    if (stats) {
+      const townCaps = await prisma.town.findUnique({
+        where: { id: town.id },
+        select: { maxActiveGuests: true },
+      });
+      const cap = townCaps?.maxActiveGuests ?? 0;
+      if (cap > 0 && stats.numUsers >= cap + 1) {
+        return NextResponse.json(
+          {
+            error: "town-at-capacity",
+            detail: `This town is at capacity right now (${cap} active visitors). Come back in a bit.`,
+            limit: cap,
+          },
+          { status: 429 },
+        );
+      }
+    }
   }
 
   try {

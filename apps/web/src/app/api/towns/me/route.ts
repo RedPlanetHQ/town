@@ -49,6 +49,20 @@ export async function POST(req: Request) {
     if (code === "slug-taken" || code === "slug-invalid") {
       return NextResponse.json({ error: code }, { status: 409 });
     }
+    if (code === "town-limit-reached") {
+      const limit = (e as { limit?: number }).limit;
+      return NextResponse.json(
+        {
+          error: "town-limit-reached",
+          detail:
+            typeof limit === "number"
+              ? `You've reached your limit of ${limit} town${limit === 1 ? "" : "s"}. Delete one or upgrade your account to make room.`
+              : "You've reached your town limit.",
+          limit,
+        },
+        { status: 403 },
+      );
+    }
     console.error("[towns/me POST] unexpected", e);
     return NextResponse.json({ error: "server-error" }, { status: 500 });
   }
