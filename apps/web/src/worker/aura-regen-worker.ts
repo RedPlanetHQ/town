@@ -22,8 +22,8 @@ import {
 import { getRedisConnection } from "../lib/queue/redis";
 
 // How much aura a town regenerates per hourly tick. With the default
-// max of 1000, an emptied town refills in 20 hours.
-export const AURA_REGEN_AMOUNT = 50;
+// max of 1000, an emptied town refills in 100 hours.
+export const AURA_REGEN_AMOUNT = 10;
 
 /** True when the error looks like an RDS-killed-idle-connection
  *  situation. Prisma surfaces these as messages containing "Closed",
