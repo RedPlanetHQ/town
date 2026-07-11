@@ -167,13 +167,14 @@ export async function openRoom(input: OpenRoomInput): Promise<void> {
       groupChatStore.pruneTyping();
     }, 800);
   }
-  // Prune expired topics from the sidebar every 15s. Cheap — it only
-  // walks the topic list. Anything freshly aged out disappears and,
-  // if the active topic is the one that expired, we fall back to
-  // #general (handled inside pruneExpiredTopics).
+  // Re-render every 15s so "42m left" → "1m left" → "expired" labels
+  // stay honest. Expired topics themselves stay visible as read-only
+  // rows; players can still open them and scroll the transcript, but
+  // the composer refuses new messages (surface-level + 410 from the
+  // POST route).
   if (expiredTopicTimer === null) {
     expiredTopicTimer = window.setInterval(() => {
-      groupChatStore.pruneExpiredTopics();
+      groupChatStore.refreshTopicClocks();
     }, 15_000);
   }
 }

@@ -178,25 +178,13 @@ export const groupChatStore = {
       state.activeTopicId === topicId ? null : state.activeTopicId;
     set({ topics, activeTopicId });
   },
-  /** Drop expired topics from the sidebar. Called by a cheap interval
-   *  the surface owns. If the active topic just expired, fall back
-   *  to #general so the composer stays live. */
-  pruneExpiredTopics() {
-    const now = Date.now();
-    const alive: GroupTopicRow[] = [];
-    let changed = false;
-    for (const t of state.topics) {
-      if (new Date(t.expiresAt).getTime() > now) alive.push(t);
-      else changed = true;
-    }
-    if (!changed) return;
-    const activeExpired =
-      state.activeTopicId !== null &&
-      !alive.some((t) => t.id === state.activeTopicId);
-    set({
-      topics: alive,
-      activeTopicId: activeExpired ? null : state.activeTopicId,
-    });
+  /** Force a re-render so per-topic "Xm left" / "expired" labels
+   *  refresh without waiting on a store mutation. Sidebar owns a 30s
+   *  tick that fires this. */
+  refreshTopicClocks() {
+    // No content change — just bump listeners so time-derived labels
+    // (expired, "42m left") re-compute against the current clock.
+    set({});
   },
   switchTopic(topicId: string | null) {
     if (state.activeTopicId === topicId) return;
@@ -257,7 +245,18 @@ export const groupChatStore = {
   },
   closeRoom() {
     if (!state.open && state.room === null) return;
-    set(emptyState());
+    // Preserve `currentHouse` + `othersHere` — those are scene state
+    // owned by attach.ts (set on interior enter, cleared on scene
+    // leave). If we nuked them here the floating "[G] Group chat"
+    // prompt would vanish after the player closes the panel, even
+    // though they're still standing in the same room. Only the
+    // panel-specific state (open, room, topics, messages, typing,
+    // unread, status) resets.
+    const preserved = {
+      currentHouse: state.currentHouse,
+      othersHere: state.othersHere,
+    };
+    set({ ...emptyState(), ...preserved });
   },
   setCurrentHouse(house: GroupChatRoom | null) {
     if (state.currentHouse === house) return;

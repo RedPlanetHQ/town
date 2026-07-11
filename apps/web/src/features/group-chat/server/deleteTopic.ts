@@ -1,14 +1,13 @@
 // DELETE /api/group-chat/[slug]/[building]/topics/[topicId]
 //
 // Owner-only. Sets `expiresAt = now()` (soft delete) so the topic drops
-// out of the active-topic list on the next read and any client's
-// pruneExpiredTopics sweep. A `topic-deleted` wire fans out on the room
-// channel so open sidebars remove the row instantly without waiting for
-// the 15s sweep.
+// out of the active-topic list on the next read. A `topic-deleted` wire
+// fans out on the room channel so open sidebars remove the row instantly
+// instead of leaving it around as a read-only expired thread.
 //
 // Historical messages remain in the table but stop surfacing — the
-// history endpoint already filters to #general + currently-active
-// topic ids.
+// history endpoint filters to #general + recently-active topic ids
+// and the wire tells every open client to drop this row from the store.
 
 import { publish } from "@/lib/centrifugo";
 import { prisma } from "@/lib/db";

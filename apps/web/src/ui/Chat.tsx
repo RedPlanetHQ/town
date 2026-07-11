@@ -6,18 +6,36 @@
 // invited). The route exposes a memory_search tool that hits CORE
 // /api/v1/search with the user's PAT/access-token; we render only
 // assistant text here — tool calls happen quietly behind the scenes.
+//
+// Visual language: dark, flat, blocky.
+// - Flat rectangles, no rounding
+// - Subtle white/10 hairline borders (never bright paper), no hard
+//   drop shadows — chrome recedes so content leads
+// - One accent voice per NPC (their `accent` colour): used for the
+//   avatar block, the viewer's own bubbles, and the SEND button
+// - Expanded mode centres the transcript in a max-w-3xl column so a
+//   full-screen dark backdrop doesn't read as "empty room"
 
 import { useEffect, useRef, useState } from "react";
 import { useChat, type UIMessage } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 
 import { getActiveTownSlug } from "../game/plotClient";
+import { CloseIcon, ExpandIcon, RestoreIcon } from "./chat-icons";
 import { ui, type ChatState } from "./store";
+
+type WindowMode = "compact" | "expanded";
+
+// Surface below the outer card border — slightly lighter than the
+// backdrop so bubbles + composer read as raised.
+const SURFACE = "#0e1116";
+const SURFACE_RAISED = "#171a20";
 
 export function Chat({ chat }: { chat: NonNullable<ChatState> }) {
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState("");
+  const [mode, setMode] = useState<WindowMode>("compact");
 
   // Greeting message shown above the input on first paint so the player
   // sees who they're talking to before the LLM streams its first turn.
@@ -47,29 +65,33 @@ export function Chat({ chat }: { chat: NonNullable<ChatState> }) {
     }),
   });
 
-  // Keep the scroll pinned to the latest message as the stream lands.
+  // Keep the scroll pinned to the latest message as the stream lands
+  // (and on mode swap so compact → expanded lands at the bottom too).
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [messages, mode]);
 
-  // ESC always closes the chat (and aborts any in-flight stream),
-  // including from inside the text input — standard modal behaviour.
-  // The earlier exemption that ignored ESC when the input had focus
-  // meant the chat refused to close after the user typed anything,
-  // which is exactly when they're most likely to press it.
+  // ESC behaviour:
+  // • expanded → drop back to compact so the player can still see
+  // the modal without going full-screen.
+  // • compact → close the chat (and abort any in-flight stream).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopPropagation();
+      if (mode === "expanded") {
+        setMode("compact");
+        return;
+      }
       stop();
       ui.closeChat();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [stop]);
+  }, [stop, mode]);
 
   const busy = status === "submitted" || status === "streaming";
 
@@ -79,103 +101,246 @@ export function Chat({ chat }: { chat: NonNullable<ChatState> }) {
     if (!text || busy) return;
     setInput("");
     void sendMessage({ text });
-    // Refocus the input — browsers sometimes drop focus to <body>
-    // after a form submit, which leaves the user typing into the
-    // overworld instead of the next reply. Defer to the next tick so
-    // it runs after React's reconciliation.
     queueMicrotask(() => inputRef.current?.focus());
   };
 
+  const controls = (
+    <WindowControls
+      mode={mode}
+      onExpand={() => setMode("expanded")}
+      onRestore={() => setMode("compact")}
+      onClose={() => {
+        stop();
+        ui.closeChat();
+      }}
+    />
+  );
+
+  const isExpanded = mode === "expanded";
+  const overlayCls = isExpanded
+    ? "pointer-events-auto fixed inset-0 z-40 flex items-stretch justify-center bg-black/70 backdrop-blur-sm p-4 md:p-8"
+    : "pointer-events-auto fixed inset-0 z-40 flex items-end justify-center bg-black/50 backdrop-blur-sm";
+  const cardCls = isExpanded
+    ? "relative flex w-full flex-col overflow-hidden border border-white/10 bg-[#0e1116] text-paper"
+    : "relative m-4 flex w-full max-w-2xl flex-col overflow-hidden border border-white/10 bg-[#0e1116] text-paper";
+  const innerCls = isExpanded
+    ? "mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col"
+    : "flex min-h-0 w-full flex-1 flex-col";
+
   return (
-    <div className="pointer-events-auto fixed inset-0 z-40 flex items-end justify-center bg-black/60 backdrop-blur-sm">
+    <div className={overlayCls}>
       <div
-        className="nb-card-dark m-4 flex w-full max-w-2xl flex-col gap-3 p-4"
+        className={cardCls}
         role="dialog"
         aria-label={`Chat with ${chat.speaker}`}
       >
-        {/* Header — name + close. */}
-        <div className="flex items-center justify-between gap-3 border-b-2 border-paper/15 pb-2">
-          <div className="flex items-center gap-3">
-            <div
-              className="h-8 w-8 border-2 border-paper/20"
-              style={{ background: chat.accent }}
-              aria-hidden
-            />
-            <div className="flex flex-col leading-tight">
-              <span className="text-sm font-bold uppercase tracking-wider text-paper">
-                {chat.speaker}
-              </span>
-              <span className="text-xs uppercase tracking-wider text-paper/60">
-                {chat.mode === "invited" && chat.invitee
-                  ? `with ${chat.invitee.name}`
-                  : "in conversation"}
-              </span>
+        <div className={innerCls}>
+          {/* Header — quiet chrome, chunky avatar carries identity. */}
+          <div className="flex items-center justify-between gap-4 border-b border-white/8 px-5 py-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div
+                className="h-11 w-11 shrink-0 border border-white/10"
+                style={{ background: chat.accent }}
+                aria-hidden
+              />
+              <div className="flex min-w-0 flex-col leading-tight">
+                <span className="truncate text-base font-black uppercase tracking-wide text-paper">
+                  {chat.speaker}
+                </span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-paper/50">
+                  {chat.mode === "invited" && chat.invitee
+                    ? `with ${chat.invitee.name}`
+                    : "in conversation"}
+                </span>
+              </div>
             </div>
+            {controls}
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              stop();
-              ui.closeChat();
-            }}
-            className="border-2 border-paper/30 px-2 py-1 text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/10"
-            aria-label="Close chat"
-          >
-            ESC
-          </button>
-        </div>
 
-        {/* Greeting + transcript. */}
-        <div
-          ref={listRef}
-          className="flex max-h-[55vh] min-h-[180px] flex-col gap-2 overflow-y-auto pr-1"
-        >
-          <NpcGreeting accent={chat.accent} text={greeting} />
-          {messages.map((m) => (
-            <Bubble key={m.id} message={m} accent={chat.accent} />
-          ))}
-          {busy && messages[messages.length - 1]?.role !== "assistant" ? (
-            <div className="text-xs italic text-paper/60">…</div>
+          {/* Transcript. */}
+          <div
+            ref={listRef}
+            className={`flex flex-col gap-3 overflow-y-auto px-5 py-5 ${
+              isExpanded ? "min-h-0 flex-1" : "max-h-[55vh] min-h-[220px]"
+            }`}
+          >
+            <NpcBubble
+              text={greeting}
+              accent={chat.accent}
+              expanded={isExpanded}
+              isGreeting
+            />
+            {messages.map((m) => (
+              <Bubble
+                key={m.id}
+                message={m}
+                accent={chat.accent}
+                expanded={isExpanded}
+              />
+            ))}
+            {busy && messages[messages.length - 1]?.role !== "assistant" ? (
+              <div className="flex items-center gap-2 pl-1 text-xs font-medium text-paper/50">
+                <span className="inline-flex gap-1">
+                  <span className="inline-block h-1.5 w-1.5 animate-pulse bg-paper/60" />
+                  <span
+                    className="inline-block h-1.5 w-1.5 animate-pulse bg-paper/60"
+                    style={{ animationDelay: "120ms" }}
+                  />
+                  <span
+                    className="inline-block h-1.5 w-1.5 animate-pulse bg-paper/60"
+                    style={{ animationDelay: "240ms" }}
+                  />
+                </span>
+                {chat.speaker} is typing…
+              </div>
+            ) : null}
+          </div>
+
+          {error ? (
+            <div className="mx-5 mb-3 border-2 border-red-400/70 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-200">
+              {error.message}
+            </div>
           ) : null}
+
+          {/* Composer. */}
+          <form onSubmit={handleSubmit} className="flex gap-3 px-5 pb-5 pt-2">
+            <div
+              className="flex flex-1 items-center border border-white/15 bg-[color:var(--surface-raised)] px-4 py-2 focus-within:border-white/30 transition-colors duration-100"
+              style={{ ["--surface-raised" as string]: SURFACE_RAISED }}
+            >
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={busy ? "…" : `Say something to ${chat.speaker}`}
+                className={`w-full bg-transparent font-medium text-paper placeholder:text-paper/40 focus:outline-none ${
+                  isExpanded ? "text-base" : "text-sm"
+                }`}
+                autoFocus
+              />
+            </div>
+            <SendButton
+              disabled={!input.trim() || busy}
+              accent={chat.accent}
+              expanded={isExpanded}
+              label={busy ? "Sending" : "Send"}
+            />
+          </form>
         </div>
-
-        {error ? (
-          <div className="border-2 border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-            {error.message}
-          </div>
-        ) : null}
-
-        {/* Input. */}
-        <form onSubmit={handleSubmit} className="flex gap-2">
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={busy ? "..." : `Say something to ${chat.speaker}`}
-            className="flex-1 border-2 border-paper/20 bg-black/30 px-3 py-2 text-sm text-paper placeholder:text-paper/40 focus:border-paper/50 focus:outline-none"
-            autoFocus
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || busy}
-            className="border-2 border-paper/20 bg-paper px-3 py-2 text-xs font-bold uppercase tracking-wider text-ink disabled:opacity-40"
-          >
-            {busy ? "Sending" : "Send"}
-          </button>
-        </form>
       </div>
     </div>
   );
 }
 
-function NpcGreeting({ accent, text }: { accent: string; text: string }) {
+function WindowControls({
+  mode,
+  onExpand,
+  onRestore,
+  onClose,
+}: {
+  mode: WindowMode;
+  onExpand: () => void;
+  onRestore: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      {mode === "expanded" ? (
+        <IconButton
+          onClick={onRestore}
+          title="Restore"
+          aria-label="Restore window size"
+        >
+          <RestoreIcon className="h-4 w-4" />
+        </IconButton>
+      ) : (
+        <IconButton
+          onClick={onExpand}
+          title="Expand"
+          aria-label="Expand to full screen"
+        >
+          <ExpandIcon className="h-4 w-4" />
+        </IconButton>
+      )}
+      <IconButton onClick={onClose} title="Close" aria-label="Close chat">
+        <CloseIcon className="h-4 w-4" />
+      </IconButton>
+    </div>
+  );
+}
+
+function IconButton({
+  children,
+  onClick,
+  title,
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="flex h-8 w-8 items-center justify-center border border-white/15 bg-transparent text-paper/80 transition-[background,color,border-color] duration-100 hover:border-white/30 hover:bg-paper/10 hover:text-paper"
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SendButton({
+  disabled,
+  accent,
+  expanded,
+  label,
+}: {
+  disabled: boolean;
+  accent: string;
+  expanded: boolean;
+  label: string;
+}) {
+  return (
+    <button
+      type="submit"
+      disabled={disabled}
+      className={`shrink-0 border border-white/10 font-black uppercase tracking-wide text-ink transition-[opacity,background] duration-100 disabled:cursor-not-allowed disabled:opacity-50 ${
+        expanded ? "px-5 py-3 text-sm" : "px-4 py-2.5 text-xs"
+      }`}
+      style={{ background: accent }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function NpcBubble({
+  text,
+  accent,
+  expanded,
+  isGreeting,
+}: {
+  text: string;
+  accent: string;
+  expanded: boolean;
+  isGreeting?: boolean;
+}) {
   return (
     <div className="flex justify-start">
       <div
-        className="max-w-[80%] whitespace-pre-wrap break-words border-2 border-paper/20 bg-black/30 px-3 py-2 text-sm leading-relaxed text-paper"
-        style={{ borderLeft: `6px solid ${accent}` }}
+        className={`relative max-w-[80%] whitespace-pre-wrap break-words border border-white/10 bg-[#171a20] font-medium text-paper ${
+          expanded
+            ? "px-4 py-3 text-base leading-relaxed"
+            : "px-3.5 py-2.5 text-sm leading-relaxed"
+        }`}
       >
+        {isGreeting ? (
+          <span
+            className="absolute -left-[2px] top-3 h-4 w-1.5 "
+            style={{ background: accent }}
+            aria-hidden
+          />
+        ) : null}
         {text}
       </div>
     </div>
@@ -246,9 +411,11 @@ function collectRuns(message: UIMessage): Run[] {
 function Bubble({
   message,
   accent,
+  expanded,
 }: {
   message: UIMessage;
   accent: string;
+  expanded: boolean;
 }) {
   const runs = collectRuns(message);
   if (runs.length === 0) return null;
@@ -263,16 +430,28 @@ function Bubble({
       className={`flex flex-col gap-2 ${isUser ? "items-end" : "items-start"}`}
     >
       {joinedText ? (
-        <div
-          className="max-w-[80%] whitespace-pre-wrap break-words border-2 px-3 py-2 text-sm leading-relaxed"
-          style={{
-            background: isUser ? accent : "rgba(0,0,0,0.3)",
-            color: isUser ? "var(--ink)" : "var(--paper)",
-            borderColor: isUser ? accent : "rgba(246,243,234,0.2)",
-          }}
-        >
-          {joinedText}
-        </div>
+        isUser ? (
+          <div
+            className={`max-w-[80%] whitespace-pre-wrap break-words border border-white/10 font-medium text-ink ${
+              expanded
+                ? "px-4 py-3 text-base leading-relaxed"
+                : "px-3.5 py-2.5 text-sm leading-relaxed"
+            }`}
+            style={{ background: accent }}
+          >
+            {joinedText}
+          </div>
+        ) : (
+          <div
+            className={`max-w-[80%] whitespace-pre-wrap break-words border border-white/10 bg-[#171a20] font-medium text-paper ${
+              expanded
+                ? "px-4 py-3 text-base leading-relaxed"
+                : "px-3.5 py-2.5 text-sm leading-relaxed"
+            }`}
+          >
+            {joinedText}
+          </div>
+        )
       ) : null}
       {itemRuns.map((r) => (
         <ChatItemCard key={r.card.itemId} card={r.card} />
@@ -287,16 +466,11 @@ function ChatItemCard({ card }: { card: ChatItemCardData }) {
       href={`/items/${card.itemId}`}
       target="_blank"
       rel="noopener noreferrer"
-      className="block max-w-[80%] border-2 border-paper/20 bg-black/40 p-2 text-paper shadow-[3px_3px_0_0_rgba(0,0,0,0.45)] hover:bg-black/30"
+      className="block max-w-[80%] overflow-hidden border border-white/10 bg-[#171a20] text-paper transition-colors duration-100"
       style={{ width: 320 }}
       aria-label={`Open ${card.templateLabel}`}
     >
-      <div
-        style={{
-          background: "#000",
-          overflow: "hidden",
-        }}
-      >
+      <div style={{ background: "#000", overflow: "hidden" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={`/api/items/${card.itemId}/svg`}
@@ -311,7 +485,7 @@ function ChatItemCard({ card }: { card: ChatItemCardData }) {
           }}
         />
       </div>
-      <div className="mt-2 flex items-center justify-between gap-2 text-xs font-bold uppercase tracking-wider">
+      <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs font-black uppercase tracking-wide">
         <span className="truncate">Earned · {card.templateLabel}</span>
         <span className="text-paper/60">Open ↗</span>
       </div>

@@ -75,7 +75,10 @@ export async function resolveGroupChatAccess(
   const plot = row.json as unknown as Plot;
   const building = plot.buildings.find((b) => b.id === buildingId);
   if (!building) return { error: "no-building" };
-  if (!building.groupChatEnabled) return { error: "house-disabled" };
+  // TEMP: group chat is on for every building — the per-house
+  // opt-in flag (`building.groupChatEnabled`) is bypassed during
+  // the rollout. Restore the guard by re-enabling this line:
+  //   if (!building.groupChatEnabled) return { error: "house-disabled" };
 
   return {
     viewer: view,

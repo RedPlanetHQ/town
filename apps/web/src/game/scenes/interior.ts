@@ -1118,8 +1118,10 @@ export function registerInteriorScene(k: KAPLAYCtx) {
     const sceneId = `interior:${opts.buildingId}`;
     setLocalScene(sceneId);
 
-    // Per-house group chat. Mount is a no-op when the building didn't
-    // opt in (PlotBuilding.groupChatEnabled). Registers the [G]
+    // Per-house group chat. TEMP: enabled in every building during the
+    // rollout — the per-house opt-in (`groupChatEnabled`) is bypassed.
+    // Restore the original gate by swapping the `enabled` line back to
+    // `myBuilding.groupChatEnabled === true`. Registers the [G]
     // keystroke, publishes "we're in a group-chat-ready house" for the
     // floating prompt, and tears itself down on scene leave so walking
     // back to the overworld auto-closes the overlay.
@@ -1131,7 +1133,7 @@ export function registerInteriorScene(k: KAPLAYCtx) {
         slug: groupChatSlug,
         buildingId: myBuilding.id,
         buildingLabel: myBuilding.label || spec.title,
-        enabled: myBuilding.groupChatEnabled === true,
+        enabled: true,
         sceneId,
       });
     }

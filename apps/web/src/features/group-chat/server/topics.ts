@@ -20,6 +20,7 @@ import { publish } from "@/lib/centrifugo";
 import { prisma } from "@/lib/db";
 
 import {
+  HISTORY_WINDOW_MS,
   MAX_TOPICS_PER_BUILDING,
   MAX_TOPICS_PER_USER,
   TOPIC_TITLE_MAX,
@@ -136,6 +137,37 @@ export async function loadActiveTopics(
 ): Promise<GroupTopicRow[]> {
   const rows = await prisma.groupTopic.findMany({
     where: { channelId, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    createdByKey: r.createdByKey,
+    createdByName: r.createdByName,
+    createdAt: r.createdAt.toISOString(),
+    expiresAt: r.expiresAt.toISOString(),
+  }));
+}
+
+/** Every topic in the visible history window — both alive and recently
+ *  expired. Sidebar renders expired ones read-only so players can
+ *  scroll the transcript without being able to post. Cutoff matches
+ *  HISTORY_WINDOW_MS so anything that has aged past the message
+ *  backfill also drops off the sidebar. */
+export async function loadRecentTopics(
+  channelId: string,
+): Promise<GroupTopicRow[]> {
+  const cutoff = new Date(
+    Date.now() - Math.max(HISTORY_WINDOW_MS, TOPIC_TTL_MS),
+  );
+  const rows = await prisma.groupTopic.findMany({
+    where: {
+      channelId,
+      OR: [
+        { expiresAt: { gt: new Date() } },
+        { expiresAt: { gt: cutoff } },
+      ],
+    },
     orderBy: { createdAt: "desc" },
   });
   return rows.map((r) => ({

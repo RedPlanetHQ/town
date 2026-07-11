@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Centrifuge, type PublicationContext } from "centrifuge";
 
 import { PALETTE } from "../game/config";
+import { CloseIcon, ExpandIcon, RestoreIcon } from "./chat-icons";
 import { ui } from "./store";
 
 // DM compose panel.
@@ -13,9 +14,10 @@ import { ui } from "./store";
 // subscribes to the Centrifugo DM channel for live updates, and posts
 // new messages via /api/towns/[slug]/dm/[other].
 //
-// Closes on Esc / Close button / explicit ui.closeDm() from another
-// surface. No auto-close on walk-away yet — the user said the panel is
-// expected to persist while it's open.
+// Visual language matches Chat.tsx — flat rectangles, subtle
+// white/10 hairline borders, one accent voice (h240 blue for the
+// viewer's own bubbles + the SEND button). Two window modes: compact
+// bottom-right dock and expanded near-full-screen for chattier reads.
 
 type Message = {
   id: string;
@@ -25,15 +27,17 @@ type Message = {
 };
 
 type LoadResponse = {
-  // Null when the conversation hasn't been opened yet on the server.
-  // The first POST upserts a row and subsequent loads will return a
-  // string here.
   conversationId: string | null;
   viewerKey: string;
   otherKey: string;
   pendingFromKey: string | null;
   messages: Message[];
 };
+
+type WindowMode = "compact" | "expanded";
+
+const SURFACE_RAISED = "#171a20";
+const OTHER_BUBBLE_BG = "#171a20";
 
 export function Dm({
   townSlug,
@@ -50,17 +54,26 @@ export function Dm({
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<WindowMode>("compact");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Esc closes the panel.
+  // Esc closes the panel — except in expanded mode where it collapses
+  // back to compact so a player mid-scroll doesn't lose context.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") ui.closeDm();
+      if (e.key !== "Escape") return;
+      if (mode === "expanded") {
+        e.preventDefault();
+        e.stopPropagation();
+        setMode("compact");
+        return;
+      }
+      ui.closeDm();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  }, [mode]);
 
   // Initial fetch + live subscription.
   useEffect(() => {
@@ -85,9 +98,6 @@ export function Dm({
         setViewerKey(body.viewerKey);
         setLoading(false);
 
-        // Live subscribe. We re-use the realtime-token endpoint to learn
-        // both the WebSocket URL and the connection JWT — that way the
-        // browser never depends on a build-time env var.
         const connRes = await fetch(`/api/towns/${townSlug}/realtime-token`, {
           cache: "no-store",
         });
@@ -134,11 +144,12 @@ export function Dm({
     };
   }, [townSlug, otherKey]);
 
-  // Auto-scroll to the latest message.
+  // Auto-scroll to the latest message on new messages and on mode swap
+  // so the bottom stays pinned when compact → expanded.
   useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages]);
+  }, [messages, mode]);
 
   async function send() {
     const text = draft.trim();
@@ -158,15 +169,9 @@ export function Dm({
         setError("Couldn't send. Try again.");
       } else {
         const { message } = (await res.json()) as { message: Message };
-        // Optimistic add — Centrifugo will also broadcast it but we
-        // dedupe by id.
         setMessages((prev) =>
           prev.some((p) => p.id === message.id) ? prev : [...prev, message],
         );
-        // Only clear the draft if the player hasn't started a new
-        // message since they hit send. The input stays enabled during
-        // the round-trip so they can keep typing; we don't want to
-        // wipe what they just typed.
         setDraft((cur) => (cur.trim() === text ? "" : cur));
       }
     } catch {
@@ -175,115 +180,212 @@ export function Dm({
       setSending(false);
       // When the player clicks Send (instead of pressing Enter), focus
       // moves to the button — return it to the input so they don't
-      // have to reach for the mouse to type the next message. rAF
-      // defers until after React commits the post-send state.
+      // have to reach for the mouse to type the next message.
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }
 
+  const isExpanded = mode === "expanded";
+  const wrapper = isExpanded
+    ? "fixed inset-4 z-40 flex flex-col md:inset-8"
+    : "fixed bottom-12 right-4 z-40 flex w-full max-w-sm flex-col";
+  const wrapperStyle: React.CSSProperties = isExpanded
+    ? {}
+    : { maxHeight: "70vh" };
+  const cardCls = isExpanded
+    ? "relative flex flex-1 flex-col overflow-hidden border border-white/10 bg-[#0e1116] text-paper"
+    : "relative flex flex-1 flex-col overflow-hidden border border-white/10 bg-[#0e1116] text-paper";
+  const innerCls = isExpanded
+    ? "mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col"
+    : "flex min-h-0 w-full flex-1 flex-col";
+
   return (
-    <div
-      className="fixed bottom-12 right-4 z-40 flex w-full max-w-sm flex-col"
-      style={{ maxHeight: "70vh" }}
-    >
-      <div className="nb-card-dark flex flex-1 flex-col overflow-hidden">
-        <div className="flex items-center justify-between gap-3 border-b-2 border-paper/15 px-3 py-2">
-          <div className="flex flex-col">
-            <div className="text-xs font-bold uppercase tracking-wider text-paper/60">
-              Talking to
+    <div className={wrapper} style={wrapperStyle}>
+      <div className={cardCls}>
+        <div className={innerCls}>
+          <div className="flex items-center justify-between gap-4 border-b border-white/8 px-5 py-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div
+                className="h-11 w-11 shrink-0 border border-white/10"
+                style={{ background: PALETTE.h240 }}
+                aria-hidden
+              />
+              <div className="flex min-w-0 flex-col leading-tight">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-paper/50">
+                  Talking to
+                </span>
+                <span className="truncate text-base font-black uppercase tracking-wide text-paper">
+                  {otherName}
+                </span>
+              </div>
             </div>
-            <div className="text-sm font-bold leading-tight text-paper">
-              {otherName}
-            </div>
+            <WindowControls
+              mode={mode}
+              onExpand={() => setMode("expanded")}
+              onRestore={() => setMode("compact")}
+              onClose={() => ui.closeDm()}
+            />
           </div>
-          <button
-            type="button"
-            onClick={() => ui.closeDm()}
-            className="text-xs font-bold uppercase tracking-wider text-paper/60 hover:text-paper"
-          >
-            Close
-          </button>
-        </div>
 
-        <div
-          ref={scrollRef}
-          className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2"
-          style={{ minHeight: "12rem", maxHeight: "40vh" }}
-        >
-          {loading ? (
-            <div className="text-xs font-bold text-paper/60">
-              Loading…
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="text-xs font-bold text-paper/60">
-              Say hi to start the conversation.
-            </div>
-          ) : (
-            messages.map((m) => {
-              const mine = m.fromKey === viewerKey;
-              return (
-                <div
-                  key={m.id}
-                  className={
-                    "max-w-[80%] border-2 px-2 py-1 text-xs font-bold " +
-                    (mine ? "self-end text-ink" : "self-start text-ink")
-                  }
-                  style={{
-                    background: mine ? PALETTE.h240 : PALETTE.h60,
-                    borderColor: "rgba(0,0,0,0.4)",
-                  }}
-                >
-                  {m.text}
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 border-t-2 border-paper/15 px-3 py-2">
-          <input
-            ref={inputRef}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !sending) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            placeholder="Say something…"
-            maxLength={2000}
-            className="flex-1 border-2 border-paper/20 bg-black/30 px-2 py-1 text-sm font-bold text-paper placeholder:text-paper/40 outline-none focus:border-paper/50"
-            // Intentionally NOT disabled while sending. Browsers blur a
-            // disabled input, which kills focus mid-round-trip. The
-            // Enter handler + Send button both gate on `sending`, so
-            // double-submit is already prevented.
-            autoFocus
-          />
-          <button
-            type="button"
-            onClick={() => void send()}
-            disabled={sending || draft.trim().length === 0}
-            className="border-2 border-paper/20 px-3 py-1 text-xs font-black uppercase tracking-wider text-ink"
-            style={{
-              background: draft.trim() ? PALETTE.h240 : "rgba(246,243,234,0.3)",
-              cursor:
-                draft.trim() && !sending ? "pointer" : "not-allowed",
-              opacity: sending ? 0.6 : 1,
-            }}
-          >
-            Send
-          </button>
-        </div>
-
-        {error ? (
           <div
-            className="border-t-2 border-paper/15 px-3 py-1 text-xs font-bold text-red-400"
+            ref={scrollRef}
+            className="flex flex-1 flex-col gap-3 overflow-y-auto px-5 py-5"
+            style={{
+              minHeight: isExpanded ? "0" : "12rem",
+              maxHeight: isExpanded ? "none" : "40vh",
+            }}
           >
-            {error}
+            {loading ? (
+              <div className="text-xs font-bold uppercase tracking-wider text-paper/50">
+                Loading…
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="text-xs font-bold uppercase tracking-wider text-paper/50">
+                Say hi to start the conversation.
+              </div>
+            ) : (
+              messages.map((m) => {
+                const mine = m.fromKey === viewerKey;
+                const stamp = formatMessageTime(m.createdAt);
+                return (
+                  <div
+                    key={m.id}
+                    className={
+                      "flex flex-col gap-1 " +
+                      (mine ? "items-end" : "items-start")
+                    }
+                  >
+                    <div
+                      className={`max-w-[80%] whitespace-pre-wrap break-words border border-white/10 font-medium ${
+                        mine ? "" : ""
+                      } ${
+                        isExpanded
+                          ? "px-4 py-3 text-base leading-relaxed"
+                          : "px-3.5 py-2.5 text-sm leading-relaxed"
+                      }`}
+                      style={{
+                        background: mine ? PALETTE.h240 : OTHER_BUBBLE_BG,
+                        color: mine ? "var(--ink)" : "var(--paper)",
+                      }}
+                    >
+                      {m.text}
+                    </div>
+                    {isExpanded && stamp ? (
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-paper/40">
+                        {stamp}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })
+            )}
           </div>
-        ) : null}
+
+          <div className="flex items-center gap-3 px-5 pb-5 pt-2">
+            <div
+              className="flex flex-1 items-center border border-white/15 bg-[color:var(--surface-raised)] px-4 py-2 focus-within:border-white/30 transition-colors duration-100"
+              style={{ ["--surface-raised" as string]: SURFACE_RAISED }}
+            >
+              <input
+                ref={inputRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !sending) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+                placeholder="Say something…"
+                maxLength={2000}
+                className={`w-full bg-transparent font-medium text-paper placeholder:text-paper/40 focus:outline-none ${
+                  isExpanded ? "text-base" : "text-sm"
+                }`}
+                autoFocus
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void send()}
+              disabled={sending || draft.trim().length === 0}
+              className={`shrink-0 border border-white/10 font-black uppercase tracking-wide text-ink transition-[opacity,background] duration-100 disabled:cursor-not-allowed disabled:opacity-50 ${
+                isExpanded ? "px-5 py-3 text-sm" : "px-4 py-2.5 text-xs"
+              }`}
+              style={{ background: PALETTE.h240 }}
+            >
+              Send
+            </button>
+          </div>
+
+          {error ? (
+            <div className="mx-5 mb-4 border-2 border-red-400/70 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-200">
+              {error}
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );
+}
+
+function WindowControls({
+  mode,
+  onExpand,
+  onRestore,
+  onClose,
+}: {
+  mode: WindowMode;
+  onExpand: () => void;
+  onRestore: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      {mode === "expanded" ? (
+        <IconButton
+          onClick={onRestore}
+          title="Restore"
+          aria-label="Restore window size"
+        >
+          <RestoreIcon className="h-4 w-4" />
+        </IconButton>
+      ) : (
+        <IconButton
+          onClick={onExpand}
+          title="Expand"
+          aria-label="Expand to full screen"
+        >
+          <ExpandIcon className="h-4 w-4" />
+        </IconButton>
+      )}
+      <IconButton onClick={onClose} title="Close" aria-label="Close chat">
+        <CloseIcon className="h-4 w-4" />
+      </IconButton>
+    </div>
+  );
+}
+
+function IconButton({
+  children,
+  onClick,
+  title,
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="flex h-8 w-8 items-center justify-center border border-white/15 bg-transparent text-paper/80 transition-[background,color,border-color] duration-100 hover:border-white/30 hover:bg-paper/10 hover:text-paper"
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}
+
+function formatMessageTime(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }

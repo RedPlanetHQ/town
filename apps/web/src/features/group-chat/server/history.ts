@@ -10,10 +10,10 @@
 // authorised for the town and the building must opt in. Anyone the
 // access helper accepts (owner or visitor with cookie) can read.
 //
-// Filtering: only messages in #general (topicId=null) or in currently
-// active topics come back. Messages belonging to expired topics are
-// invisible even if they still sit in the table, so the client can
-// bucket by topicId without ever seeing a ghost thread.
+// Filtering: messages in #general (topicId=null), currently active
+// topics, and recently-expired topics (still inside HISTORY_WINDOW_MS)
+// all come back. Expired topics render read-only in the sidebar so
+// players can scroll old conversations without being able to post.
 
 import { mintSubscribeToken } from "@/lib/centrifugo";
 import { prisma } from "@/lib/db";
@@ -27,7 +27,7 @@ import {
   groupChatErrorResponse,
   resolveGroupChatAccess,
 } from "./access";
-import { loadActiveTopics } from "./topics";
+import { loadRecentTopics } from "./topics";
 
 type Params = { slug: string; building: string };
 
@@ -37,21 +37,21 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
   if ("error" in access) return groupChatErrorResponse(access.error);
 
   const since = new Date(Date.now() - HISTORY_WINDOW_MS);
-  const topics: GroupTopicRow[] = await loadActiveTopics(access.channelId);
-  const activeTopicIds = topics.map((t) => t.id);
+  const topics: GroupTopicRow[] = await loadRecentTopics(access.channelId);
+  const visibleTopicIds = topics.map((t) => t.id);
 
-  // Match messages in #general OR in one of the active topics. This
-  // filters out rows tied to topics that have expired inside the
-  // 1-hour window so the client doesn't render a bucket with no
-  // sidebar entry.
+  // Match messages in #general OR in any topic still visible on the
+  // sidebar (active + recently-expired). Rows tied to topics that
+  // aged past the window drop off so the client never sees a bucket
+  // without a matching sidebar row.
   const rows = await prisma.groupMessage.findMany({
     where: {
       channelId: access.channelId,
       createdAt: { gte: since },
       OR: [
         { topicId: null },
-        ...(activeTopicIds.length > 0
-          ? [{ topicId: { in: activeTopicIds } }]
+        ...(visibleTopicIds.length > 0
+          ? [{ topicId: { in: visibleTopicIds } }]
           : []),
       ],
     },
