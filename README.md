@@ -4,7 +4,7 @@
 
 <h1 align="center">Town</h1>
 
-<p align="center"><em>Your world, as a tiny pixel town that grows itself.</em></p>
+<p align="center"><em>Discord, but you walk around a pixel town — where the NPCs have skills.</em></p>
 
 <p align="center">
   <img src="docs/assets/screenshot-tenkai.png" alt="An overworld screenshot of a town named Tenkai — three buildings nestled in a dense forest, signpost reading 'Tenkai · Harshith Mullapudi · 2 miles'." width="780" />
