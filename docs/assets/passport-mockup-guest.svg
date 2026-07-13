@@ -29,7 +29,7 @@
     <text x="360" y="340" font-size="8" opacity="0.6" text-anchor="end" letter-spacing="1">PAGE 1</text>
     <g font-size="9" letter-spacing="2" opacity="0.85">
       <text x="20" y="380">P&lt;TOWNTRAVELER&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</text>
-      <text x="20" y="395">000000000&lt;6TOWN260712&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;20</text>
+      <text x="20" y="395">TPGUEST00&lt;6TOWN260712&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;20</text>
     </g>
   </g><text x="660" y="90" text-anchor="middle" fill="#1f4b58" font-family="'Courier New', Menlo, monospace" font-size="14" letter-spacing="4" font-weight="bold">TOWNS VISITED</text>
     <line x1="520" y1="102" x2="800" y2="102" stroke="#1f4b58" stroke-width="1" opacity="0.4"/><g transform="translate(550, 165) rotate(-7)">

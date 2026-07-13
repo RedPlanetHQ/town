@@ -51,7 +51,7 @@ export function sampleData(stampCount: number, displayName = "Harshith Mullapudi
     kind: "authed",
     handle: "harshith",
     displayName,
-    passportId: "TP-2026-000042",
+    passportId: "TP-2026-6WKZ42",
     issuedAt: base,
     townsOwned: 3,
     stamps,

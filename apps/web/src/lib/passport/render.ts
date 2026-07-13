@@ -73,8 +73,11 @@ export function renderIdentityPage(data: PassportData): string {
   const yr = data.issuedAt.getUTCFullYear() % 100;
   const mm = String(data.issuedAt.getUTCMonth() + 1).padStart(2, "0");
   const dd = String(data.issuedAt.getUTCDate()).padStart(2, "0");
-  const numDigits = num.replace(/[^0-9]/g, "").padStart(9, "0").slice(0, 9);
-  const mrz2 = `${numDigits}&lt;6TOWN${yr}${mm}${dd}&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;20`;
+  // MRZ line 2 wants a 9-char alphanumeric passport number field.
+  // Strip separators and pad with `0` to keep the column width stable
+  // regardless of whether the id is numeric (old backfill) or base36.
+  const mrzNum = num.replace(/-/g, "").padEnd(9, "0").slice(0, 9);
+  const mrz2 = `${mrzNum}&lt;6TOWN${yr}${mm}${dd}&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;20`;
 
   return `<g transform="translate(60, 60)" fill="__INK__" font-family="'Courier New', Menlo, monospace">
     <circle cx="180" cy="30" r="18" fill="none" stroke="__INK__" stroke-width="2"/>

@@ -1,9 +1,11 @@
 // Passport ID generation + backfill utility.
 //
-// Format: `TP-<year>-<6-digit>`, e.g. `TP-2026-000042`. `year` is the
-// user's `createdAt.getUTCFullYear()` so the ID encodes join provenance.
-// The 6-digit suffix is random; on the vanishingly rare unique conflict
-// we just try again.
+// Format: `TP-<year>-<6-char-base36>`, e.g. `TP-2026-6WKZ42`. `year` is
+// the user's `createdAt.getUTCFullYear()` so the ID encodes join
+// provenance. The 6-character alphanumeric suffix draws from
+// `[0-9A-Z]`, giving 36^6 ≈ 2.2B unique IDs per year — effectively
+// infinite for any realistic growth. On the vanishingly rare unique
+// conflict we just try again.
 //
 // This module is idempotent by design: `ensurePassportId(userId)` is
 // safe to call on every login. It's a no-op once the user has one.
@@ -11,9 +13,15 @@
 import { prisma } from "@/lib/db";
 
 const MAX_RETRIES = 8;
+const SUFFIX_LEN = 6;
+const BASE36_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-function randomSixDigit(): string {
-  return String(Math.floor(Math.random() * 1_000_000)).padStart(6, "0");
+function randomBase36Suffix(): string {
+  let out = "";
+  for (let i = 0; i < SUFFIX_LEN; i++) {
+    out += BASE36_CHARS[Math.floor(Math.random() * BASE36_CHARS.length)]!;
+  }
+  return out;
 }
 
 export function formatPassportId(year: number, seq: string): string {
@@ -43,7 +51,7 @@ export async function ensurePassportId(userId: string): Promise<string> {
   const year = existing.createdAt.getUTCFullYear();
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const candidate = formatPassportId(year, randomSixDigit());
+    const candidate = formatPassportId(year, randomBase36Suffix());
     try {
       const result = await prisma.user.updateMany({
         where: { id: userId, passportId: null },
