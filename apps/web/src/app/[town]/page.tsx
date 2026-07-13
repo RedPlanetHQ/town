@@ -19,6 +19,7 @@ import { getSessionFromCookie } from "@/lib/session";
 import { recordTownActivity } from "@/lib/town-activity";
 import { getTownBySlug } from "@/lib/town";
 import { normalizeCode, parseVisitorCookie, visitorCookieName } from "@/lib/town-code";
+import { upsertPassportStamp } from "@/lib/passport/stamp";
 import { PassportStampToast } from "@/ui/PassportStampToast";
 import { TownGame } from "@/ui/TownGame";
 import { VisitorGate } from "@/ui/VisitorGate";
@@ -182,6 +183,16 @@ export default async function TownPage({
       subjectCharacter: visitor.ch,
       metadata: { isOwner: false },
     }).catch((e) => console.warn("[town-activity] visit failed", e));
+    // CORE-authed viewers accumulate a PassportStamp for every town
+    // that isn't their own. Guests are excluded — their per-town
+    // visitor cookies are aggregated at read time in loadGuestPassportData.
+    if (session && session.user.id !== town.ownerId) {
+      void upsertPassportStamp({
+        userId: session.user.id,
+        townId: town.id,
+        townOwnerId: town.ownerId,
+      }).catch((e) => console.warn("[passport-stamp] upsert failed", e));
+    }
     return (
       <>
         <TownGame
