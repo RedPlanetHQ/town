@@ -19,6 +19,7 @@ import {
   getOAuthConfig,
   getPublicBaseUrl,
 } from "@/lib/oauth";
+import { ensurePassportId } from "@/lib/passport/id";
 import { createSession, setSessionCookie } from "@/lib/session";
 
 export async function GET(req: NextRequest) {
@@ -106,6 +107,13 @@ export async function GET(req: NextRequest) {
       update: { email, name },
     });
   }
+
+  // Idempotent — assigns a passportId for brand-new users, and covers any
+  // legacy row that somehow slipped past the backfill migration.
+  await ensurePassportId(user.id).catch(() => {
+    // A failure here shouldn't block sign-in; the /passport page falls
+    // back to a TP-PENDING label and the next login retries.
+  });
 
   const session = await createSession({ userId: user.id, tokens });
   await setSessionCookie(session.id);

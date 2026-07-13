@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { getPlayerCharacter } from "../game/character";
-import { logout } from "../game/auth";
+import { logout, startLogin } from "../game/auth";
 import { CharacterAvatar } from "./CharacterAvatar";
 import { HudButton } from "./HudButton";
 import { NewTownInstructions } from "./NewTownInstructions";
@@ -26,17 +26,8 @@ export function Hud({
     const character = getPlayerCharacter();
 
     if (!session) {
-      // Guest — no menu, just the badge.
-      return (
-        <HudButton
-          icon={
-            <CharacterAvatar character={character} seed={name} size={20} />
-          }
-          title="Walk home → desk to sign in"
-        >
-          {name}
-        </HudButton>
-      );
+      // Guest — small dropdown with Passport + Sign in with CORE.
+      return <GuestMenu name={name} character={character} />;
     }
 
     return (
@@ -138,6 +129,14 @@ function IdentityMenu({
           >
             Share…
           </button>
+          <a
+            role="menuitem"
+            href="/passport"
+            className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5"
+            onClick={() => setOpen(false)}
+          >
+            Passport…
+          </a>
           <SwitchTownItem
             activeSlug={activeSlug}
             onPick={() => setOpen(false)}
@@ -177,6 +176,78 @@ function IdentityMenu({
       ) : null}
       {showNewModal ? (
         <NewTownModal onClose={() => setShowNewModal(false)} />
+      ) : null}
+    </div>
+  );
+}
+
+// Guest identity pill dropdown — smaller menu than IdentityMenu, only
+// Passport (provisional) + Sign in with CORE. Guests can still download
+// their provisional passport as a PDF.
+function GuestMenu({
+  name,
+  character,
+}: {
+  name: string;
+  character: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(e: PointerEvent) {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative inline-flex">
+      <HudButton
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        title="Open menu"
+        active={open}
+        icon={<CharacterAvatar character={character} seed={name} size={20} />}
+      >
+        {name}
+      </HudButton>
+      {open ? (
+        <div
+          role="menu"
+          className="nb-card-dark absolute left-0 top-full z-40 mt-1 flex min-w-[200px] flex-col p-1"
+        >
+          <a
+            role="menuitem"
+            href="/passport"
+            className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5"
+            onClick={() => setOpen(false)}
+          >
+            Passport…
+          </a>
+          <button
+            type="button"
+            role="menuitem"
+            className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5"
+            onClick={() => {
+              setOpen(false);
+              startLogin(window.location.pathname);
+            }}
+          >
+            Sign in with CORE…
+          </button>
+        </div>
       ) : null}
     </div>
   );

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 560">
+    <defs>
+    <linearGradient id="spine" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" stop-color="#000" stop-opacity="0.140"/>
+      <stop offset="50%" stop-color="#000" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.140"/>
+    </linearGradient>
+  </defs>
+    <g transform="translate(0, 0)"><rect x="20" y="20" width="860" height="520" fill="#e3ebee" rx="6"/>
+    <rect x="440" y="20" width="20" height="520" fill="url(#spine)"/><g transform="translate(60, 60)" fill="#1f4b58" font-family="'Courier New', Menlo, monospace">
+    <circle cx="180" cy="30" r="18" fill="none" stroke="#1f4b58" stroke-width="2"/>
+    <text x="180" y="36" text-anchor="middle" font-size="16" font-weight="bold">T</text>
+    <text x="180" y="80" text-anchor="middle" font-size="14" letter-spacing="4" font-weight="bold">TOWN PASSPORT</text>
+    <line x1="40" y1="95" x2="320" y2="95" stroke="#1f4b58" stroke-width="1" opacity="0.4"/>
+    <rect x="20" y="115" width="130" height="150" fill="none" stroke="#1f4b58" stroke-width="2" stroke-dasharray="4 4" opacity="0.5"/>
+    <text x="85" y="200" text-anchor="middle" font-size="32" font-weight="bold" opacity="0.35">T</text>
+    <g font-size="9">
+      <text x="175" y="130" opacity="0.6" letter-spacing="1">NAME / NOM</text>
+      <text x="175" y="148" font-size="14" font-weight="bold">TRAVELER</text>
+      <text x="175" y="180" opacity="0.6" letter-spacing="1">PASSPORT NO / N°</text>
+      <text x="175" y="197" font-size="13" font-weight="bold" letter-spacing="1">TP-GUEST</text>
+      <text x="175" y="225" opacity="0.6" letter-spacing="1">ISSUED / DÉLIVRÉ</text>
+      <text x="175" y="242" font-size="12">12 · JUL · 2026</text>
+      <text x="175" y="270" opacity="0.6" letter-spacing="1">TOWNS OWNED</text>
+      <text x="175" y="287" font-size="13" font-weight="bold">0 TOWNS</text>
+    </g>
+    <line x1="20" y1="325" x2="360" y2="325" stroke="#1f4b58" stroke-width="1" opacity="0.4"/>
+    <text x="20" y="340" font-size="8" opacity="0.6" letter-spacing="1">SIGNATURE / SIGNATURE</text>
+    <text x="360" y="340" font-size="8" opacity="0.6" text-anchor="end" letter-spacing="1">PAGE 1</text>
+    <g font-size="9" letter-spacing="2" opacity="0.85">
+      <text x="20" y="380">P&lt;TOWNTRAVELER&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</text>
+      <text x="20" y="395">000000000&lt;6TOWN260712&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;20</text>
+    </g>
+  </g><text x="660" y="90" text-anchor="middle" fill="#1f4b58" font-family="'Courier New', Menlo, monospace" font-size="14" letter-spacing="4" font-weight="bold">TOWNS VISITED</text>
+    <line x1="520" y1="102" x2="800" y2="102" stroke="#1f4b58" stroke-width="1" opacity="0.4"/><g transform="translate(550, 165) rotate(-7)">
+    <circle cx="0" cy="0" r="45" fill="none" stroke="#c46b1e" stroke-width="3" opacity="0.85"/>
+    <circle cx="0" cy="0" r="40" fill="none" stroke="#c46b1e" stroke-width="1" opacity="0.6"/>
+    <text x="0" y="-12" text-anchor="middle" font-size="10" fill="#c46b1e" font-weight="bold" letter-spacing="1">CORE TOWN</text>
+    <text x="0" y="6" text-anchor="middle" font-size="14" fill="#c46b1e">✦</text>
+    <text x="0" y="24" text-anchor="middle" font-size="7" fill="#c46b1e" letter-spacing="1">12·JUL·26</text>
+  </g>
+<g transform="translate(680, 175) rotate(-2)">
+    <circle cx="0" cy="0" r="45" fill="none" stroke="#8a5a1e" stroke-width="3" opacity="0.85"/>
+    <circle cx="0" cy="0" r="40" fill="none" stroke="#8a5a1e" stroke-width="1" opacity="0.6"/>
+    <text x="0" y="-12" text-anchor="middle" font-size="10" fill="#8a5a1e" font-weight="bold" letter-spacing="1">MYSTERY</text>
+    <text x="0" y="6" text-anchor="middle" font-size="14" fill="#8a5a1e">★</text>
+    <text x="0" y="24" text-anchor="middle" font-size="7" fill="#8a5a1e" letter-spacing="1">13·JUL·26</text>
+  </g>
+<g transform="translate(800, 165) rotate(-6)">
+    <circle cx="0" cy="0" r="45" fill="none" stroke="#4a7f3f" stroke-width="3" opacity="0.85"/>
+    <circle cx="0" cy="0" r="40" fill="none" stroke="#4a7f3f" stroke-width="1" opacity="0.6"/>
+    <text x="0" y="-12" text-anchor="middle" font-size="10" fill="#4a7f3f" font-weight="bold" letter-spacing="1">STARTUP</text>
+    <text x="0" y="6" text-anchor="middle" font-size="14" fill="#4a7f3f">◆</text>
+    <text x="0" y="24" text-anchor="middle" font-size="7" fill="#4a7f3f" letter-spacing="1">14·JUL·26</text>
+  </g><g transform="translate(560, 295)" opacity="0.2">
+      <circle cx="0" cy="0" r="42" fill="none" stroke="#1f4b58" stroke-width="2" stroke-dasharray="6 6"/>
+      <text x="0" y="4" text-anchor="middle" font-family="'Courier New', Menlo, monospace" font-size="8" fill="#1f4b58" letter-spacing="1">NEXT STAMP</text>
+    </g><text x="660" y="440" text-anchor="middle" font-family="'Courier New', Menlo, monospace" font-size="8" fill="#1f4b58" opacity="0.55" letter-spacing="2">— 3 STAMPS —</text><text x="840" y="475" font-family="'Courier New', Menlo, monospace" font-size="8" fill="#1f4b58" opacity="0.6" text-anchor="end" letter-spacing="1">PAGE 1</text></g>
+  </svg>

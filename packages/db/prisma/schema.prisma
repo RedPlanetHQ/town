@@ -46,6 +46,12 @@ model User {
   maxTowns            Int    @default(3)
   maxTotalCustomPlots Int    @default(20)
 
+  // Shareable passport identifier, format `TP-<year>-<6-digit>`. Assigned
+  // once at user creation; immutable. Nullable only for pre-migration rows
+  // until backfill fills them in. Used as the public passport handle key
+  // (`/passport/TP-2026-000042`) and displayed on the passport identity page.
+  passportId          String? @unique
+
   sessions             Session[]
   townEvents           TownEventRow[]
   integrations         IntegrationRow[]
@@ -57,6 +63,7 @@ model User {
   creatorConversations CreatorConversation[]
   tokenUsage           TokenUsage[]
   entitlementGrants    EntitlementGrant[]
+  passportStamps       PassportStamp[]
 
   @@unique([coreUserId, workspaceId])
   @@index([email])
@@ -129,6 +136,7 @@ model Town {
   creatorConversations CreatorConversation[]
   tokenUsage           TokenUsage[]
   visits               TownVisit[]
+  passportStamps       PassportStamp[]
   entitlementGrants    EntitlementGrant[]
   // Per-town catalog of visitor tags + SVG item templates. Authored under
   // the town deployment directory (tags inline in town.json, items as
@@ -477,6 +485,33 @@ model TownVisit {
   createdAt  DateTime @default(now())
 
   @@unique([townId, viewerKey])
+  @@index([townId])
+}
+
+// Passport-visible stamp. One row per (user, town) — write-time idempotent.
+//
+// Rules enforced at the write site (see recordTownActivity / town page load):
+//   • only CORE-authenticated viewers ("user:<id>") — guests never stamp
+//   • never stamp any of the visitor's own owned towns; the whole set of
+//     towns where User.id == Town.ownerId is excluded, not just a single
+//     "home" town. Owner count is surfaced separately on the identity page.
+//
+// On repeat visits the row is upserted: firstVisitedAt is set once at
+// creation, lastVisitedAt bumps every visit, visitCount increments. The
+// existing TownVisit table is kept as the raw visit log; PassportStamp is
+// the derived, presentation-ready projection.
+model PassportStamp {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  townId         String
+  town           Town     @relation(fields: [townId], references: [id], onDelete: Cascade)
+  firstVisitedAt DateTime @default(now())
+  lastVisitedAt  DateTime @default(now())
+  visitCount     Int      @default(1)
+
+  @@unique([userId, townId])
+  @@index([userId, firstVisitedAt])
   @@index([townId])
 }
 

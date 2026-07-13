@@ -19,6 +19,7 @@ import { getSessionFromCookie } from "@/lib/session";
 import { recordTownActivity } from "@/lib/town-activity";
 import { getTownBySlug } from "@/lib/town";
 import { normalizeCode, parseVisitorCookie, visitorCookieName } from "@/lib/town-code";
+import { PassportStampToast } from "@/ui/PassportStampToast";
 import { TownGame } from "@/ui/TownGame";
 import { VisitorGate } from "@/ui/VisitorGate";
 
@@ -182,15 +183,18 @@ export default async function TownPage({
       metadata: { isOwner: false },
     }).catch((e) => console.warn("[town-activity] visit failed", e));
     return (
-      <TownGame
-        viewerMode="visitor"
-        townSlug={town.slug}
-        townName={town.name}
-        townDescription={town.description ?? null}
-        visitorName={visitor.n}
-        visitorCharacter={visitor.ch}
-        ownerParticipantKey={userParticipantKey(town.ownerId)}
-      />
+      <>
+        <TownGame
+          viewerMode="visitor"
+          townSlug={town.slug}
+          townName={town.name}
+          townDescription={town.description ?? null}
+          visitorName={visitor.n}
+          visitorCharacter={visitor.ch}
+          ownerParticipantKey={userParticipantKey(town.ownerId)}
+        />
+        <PassportStampToast townSlug={town.slug} townName={town.name} />
+      </>
     );
   }
 

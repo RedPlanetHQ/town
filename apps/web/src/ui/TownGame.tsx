@@ -43,7 +43,6 @@ import { PALETTE } from "../game/config";
 import { ui } from "./store";
 import { GroupChatPrompt, GroupChatSurface } from "../features/group-chat";
 import { BottomBar } from "./BottomBar";
-import { BuildTownCta } from "./BuildTownCta";
 import { CommunityLinks } from "./CommunityLinks";
 import { Flyover } from "./Flyover";
 import { HudButton } from "./HudButton";
@@ -468,13 +467,14 @@ export function TownGame(props: TownGameProps = {}) {
       <GroupChatPrompt />
       <GroupChatSurface />
 
-      {/* Left-side toolbar that floats just above the BottomBar: the
-          "Build your own town" CTA (visitor only) sits alongside the
-          Town Radio music player and the Flyover intro launcher. One
-          row keeps the left corner readable as a single peer to the
-          activity ticker. The Flyover button only makes sense from
-          the overworld — hide it inside building interiors so the
-          intro doesn't try to fly over a scene with no plot loaded. */}
+      {/* Left-side toolbar that floats just above the BottomBar: Town
+          Radio music player + Flyover intro launcher. One row keeps the
+          left corner readable as a single peer to the activity ticker.
+          The Flyover button only makes sense from the overworld — hide
+          it inside building interiors so the intro doesn't try to fly
+          over a scene with no plot loaded.
+          "Build your own town" lives inside the visitor identity
+          dropdown now (top-left), not down here. */}
       <BottomToolbar
         isVisitor={isVisitor}
         townName={
@@ -699,14 +699,14 @@ function TrophyIcon() {
   );
 }
 
-// Left-side bottom toolbar: BuildTownCta (visitors) + Town Radio +
-// Flyover + Instructions. Subscribes to scene changes so the Flyover
-// button drops off the moment the player walks into a building (the
-// cinematic fly-over only makes sense over the overworld plot). The
-// Instructions pill stays visible in every scene so a confused
-// visitor can pull up the controls from anywhere.
+// Left-side bottom toolbar: Town Radio + Flyover + Instructions.
+// Subscribes to scene changes so the Flyover button drops off the
+// moment the player walks into a building (the cinematic fly-over only
+// makes sense over the overworld plot). The Instructions pill stays
+// visible in every scene so a confused visitor can pull up the controls
+// from anywhere.
 function BottomToolbar({
-  isVisitor,
+  isVisitor: _isVisitor,
   townName,
 }: {
   isVisitor: boolean;
@@ -726,7 +726,6 @@ function BottomToolbar({
       className="pointer-events-auto absolute left-3 z-30 flex items-end gap-2"
       style={{ bottom: 40 }}
     >
-      {isVisitor ? <BuildTownCta /> : null}
       <TownRadio />
       {onOverworld ? <FlyoverButton townName={townName} /> : null}
       <InstructionsButton />
