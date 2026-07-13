@@ -12,27 +12,36 @@ import { prisma } from "@/lib/db";
 import type { PassportData } from "./types";
 
 export async function loadPassportData(userId: string): Promise<PassportData | null> {
-  const [user, stamps, ownedCount] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: { name: true, passportId: true, createdAt: true },
-    }),
+  return loadAuthedPassportBy({ id: userId });
+}
+
+/** Looks up a passport by its public `passportId` (e.g. `TP-2026-000042`). */
+export async function loadPassportDataByPassportId(passportId: string): Promise<PassportData | null> {
+  return loadAuthedPassportBy({ passportId: passportId.toUpperCase() });
+}
+
+async function loadAuthedPassportBy(where: { id: string } | { passportId: string }): Promise<PassportData | null> {
+  const user = await prisma.user.findUnique({
+    where,
+    select: { id: true, name: true, passportId: true, createdAt: true },
+  });
+  if (!user) return null;
+
+  const [stamps, ownedCount] = await Promise.all([
     prisma.passportStamp.findMany({
-      where: { userId },
+      where: { userId: user.id },
       orderBy: { firstVisitedAt: "asc" },
       select: {
         firstVisitedAt: true,
         town: { select: { slug: true, name: true } },
       },
     }),
-    prisma.town.count({ where: { ownerId: userId } }),
+    prisma.town.count({ where: { ownerId: user.id } }),
   ]);
-
-  if (!user) return null;
 
   return {
     kind: "authed",
-    handle: userId,
+    handle: user.id,
     displayName: user.name,
     passportId: user.passportId ?? "TP-PENDING",
     issuedAt: user.createdAt,

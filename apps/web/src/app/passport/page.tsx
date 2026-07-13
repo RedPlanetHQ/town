@@ -4,11 +4,13 @@
 // caller has no session.
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import type { Metadata } from "next";
 
 import { getSessionFromCookie } from "@/lib/session";
 import { loadGuestPassportData, loadPassportData } from "@/lib/passport/load";
 import { renderPreview } from "@/lib/passport/render";
+import { CopyLinkButton } from "@/ui/CopyLinkButton";
 import { InfoPageShell } from "@/ui/InfoPageShell";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +32,17 @@ export default async function PassportPage() {
   const stampCount = data.stamps.length;
   const isGuest = data.kind === "guest";
 
+  // Public share URL — only meaningful for authed passports (guests don't
+  // have a stable public id yet). Uses the same absolute-origin resolution
+  // pattern as the /[town] page's OG tags.
+  let shareUrl: string | null = null;
+  if (!isGuest && data.passportId !== "TP-PENDING") {
+    const hdrs = await headers();
+    const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "town.getcore.me";
+    const proto = hdrs.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+    shareUrl = `${proto}://${host}/passport/${data.passportId}`;
+  }
+
   return (
     <InfoPageShell
       title="Passport"
@@ -37,6 +50,7 @@ export default async function PassportPage() {
       maxWidth="4xl"
     >
       <div className="flex items-center justify-end gap-2">
+        {shareUrl ? <CopyLinkButton href={shareUrl} /> : null}
         <a
           href="/api/passport/pdf"
           className="border-2 border-paper/30 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/10"
