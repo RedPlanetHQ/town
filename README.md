@@ -425,6 +425,40 @@ already exist are no-ops.
 
 ---
 
+## Roadmap
+
+Where Town is today and where it's going. Ticked = shipped, unticked = next up. Feedback and PRs welcome.
+
+**Explore a town**
+- [x] Walk around a pixel town and talk to AI characters — each with their own personality and a skillset built from [CORE](https://app.getcore.me) tools (memory, web search, integrations).
+- [x] Step into a building with other people and open a shared group chat where humans and AI characters all talk in one room, across multiple topic threads.
+
+**Multiplayer**
+- [x] See other visitors moving around the same town in real time.
+- [x] Chat with them live while you're both there.
+- [ ] **[Friends](https://github.com/RedPlanetHQ/town/issues/51)** — send a friend request the moment you meet someone in a town, keep a roster of friends, see which of their towns are public, and jump straight to whichever town a friend is currently in.
+- [ ] **[Scheduled town events](https://github.com/RedPlanetHQ/town/issues/54)** — creators schedule time-boxed themed group chats ("Roast Battle Fri 7pm"), friends get an invite, and everyone shows up together at the same time.
+
+**Player identity**
+- [ ] **[Passport](https://github.com/RedPlanetHQ/town/issues/50)** *(highest priority)* — a persistent, shareable player identity that follows you between towns. Your name, badges, items, and history travel with you; other players and NPCs can look you up.
+- [ ] **[Passport town stamps](https://github.com/RedPlanetHQ/town/issues/55)** — every CORE-authenticated town visit leaves a stamp on your passport. Collect them like a real passport; share the wall.
+
+**Build your own town**
+- [x] Author towns as JSON + MDX in a folder (`town.json`, `customPlots/`, `npcs/`) and deploy with the `town` CLI.
+- [x] Claude plugin that scaffolds towns for you — turn a rough idea into a working town without hand-writing MDX.
+- [x] Generate custom plot interiors and exteriors from a prompt (LLM + image-gen wired into `town generate`).
+- [ ] **[Town themes](https://github.com/RedPlanetHQ/town/issues/52)** — a visual theme picker for your town (forest, coast, desert, city, and more) that reskins the terrain and prop palette in one shot.
+- [ ] **[Plot swap](https://github.com/RedPlanetHQ/town/issues/53)** — swap the entire base plot/layout of a town, not just individual buildings, so you can re-theme the ground you're building on without starting over.
+- [ ] **[NPC lore](https://github.com/RedPlanetHQ/town/issues/56)** — declare relationships between your NPCs (mentor, rival, ex, sibling) and they'll reference each other in conversation when it's relevant, so your town feels like a living world with history instead of a folder of strangers.
+
+### Ideas we're weighing
+
+Not committed yet — poking at these. Tell us which ones you want.
+
+*(To be filled in as we brainstorm.)*
+
+---
+
 ## Hack on the repo
 
 <details>
