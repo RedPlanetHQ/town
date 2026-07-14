@@ -7,7 +7,7 @@ import { logout, startLogin } from "../game/auth";
 import { BuyAuraModal } from "./BuyAuraModal";
 import { CharacterAvatar } from "./CharacterAvatar";
 import { HudButton } from "./HudButton";
-import { NewTownInstructions } from "./NewTownInstructions";
+import { NewTownModal } from "./NewTownModal";
 import { ui } from "./store";
 import type { HudKind } from "./store";
 
@@ -78,7 +78,6 @@ function IdentityMenu({
   const [open, setOpen] = useState(false);
   const [showNewModal, setShowNewModal] = useState(false);
   const [showBuyAura, setShowBuyAura] = useState(false);
-  const [buyingSlot, setBuyingSlot] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -170,36 +169,6 @@ function IdentityMenu({
               }}
             >
               Buy aura…
-            </button>
-          ) : null}
-          {pricingEnabled ? (
-            <button
-              type="button"
-              role="menuitem"
-              disabled={buyingSlot}
-              className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5 disabled:opacity-50"
-              onClick={async () => {
-                setBuyingSlot(true);
-                try {
-                  const res = await fetch("/api/stripe/checkout", {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ intent: "town_slot" }),
-                  });
-                  if (res.ok) {
-                    const body = (await res.json()) as { url?: string };
-                    if (body.url) {
-                      window.location.href = body.url;
-                      return;
-                    }
-                  }
-                } finally {
-                  setBuyingSlot(false);
-                  setOpen(false);
-                }
-              }}
-            >
-              {buyingSlot ? "Loading…" : "Buy town slot…"}
             </button>
           ) : null}
           <button
@@ -489,47 +458,3 @@ function VisibilityToggleItem({
   );
 }
 
-function NewTownModal({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="nb-card-dark flex w-full max-w-md flex-col gap-4 p-6">
-        <div className="flex items-start justify-between gap-3 border-b-2 border-paper/15 pb-3">
-          <div>
-            <div className="text-xs font-bold uppercase tracking-wide text-paper/60">
-              New town
-            </div>
-            <h2 className="mt-1 text-2xl font-black leading-tight text-paper">
-              Create another town
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="border-2 border-paper/30 px-2 py-1 text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/10"
-            aria-label="Close new town"
-          >
-            ESC
-          </button>
-        </div>
-        <p className="text-sm font-bold text-paper/80">
-          Towns are created from the CLI so you can keep authoring next
-          to your editor.
-        </p>
-        <NewTownInstructions variant="modal" />
-      </div>
-    </div>
-  );
-}

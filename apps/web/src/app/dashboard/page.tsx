@@ -9,11 +9,16 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 
 import { prisma } from "@/lib/db";
+import { loadPassportData } from "@/lib/passport/load";
+import { renderSpread, spreadCountFor } from "@/lib/passport/render";
 import { isPricingEnabled } from "@/lib/pricing";
 import { getSessionFromCookie } from "@/lib/session";
 import { getTownsByOwner } from "@/lib/town";
 import { BillingPurchases } from "@/ui/BillingPurchases";
 import { BYOKSection } from "@/ui/BYOKSection";
+import { CopyLinkButton } from "@/ui/CopyLinkButton";
+import { NewTownButton } from "@/ui/NewTownButton";
+import { PassportBook } from "@/ui/PassportBook";
 
 export const dynamic = "force-dynamic";
 
@@ -28,16 +33,29 @@ export default async function DashboardPage() {
   const session = await getSessionFromCookie();
   if (!session) redirect("/api/auth/login?next=/dashboard");
 
-  const [towns, purchases] = await Promise.all([
+  const [towns, purchases, passport] = await Promise.all([
     getTownsByOwner(session.user.id),
     prisma.entitlementGrant.findMany({
       where: { userId: session.user.id, source: "purchase" },
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
+    loadPassportData(session.userId),
   ]);
   const townCount = towns.length;
   const pricingOn = isPricingEnabled();
+  const stampCount = passport?.stamps.length ?? 0;
+  // Pre-render every spread server-side. `PassportBook` toggles which
+  // one is visible client-side — no data fetching on nav.
+  const passportSpreads = passport
+    ? Array.from({ length: spreadCountFor(stampCount) }, (_, i) =>
+        renderSpread(passport, i),
+      )
+    : [];
+  const shareUrl =
+    passport && passport.passportId !== "TP-PENDING"
+      ? `/passport/${passport.passportId}`
+      : null;
 
   return (
     <main className="h-screen overflow-y-auto bg-black text-paper">
@@ -78,26 +96,38 @@ export default async function DashboardPage() {
           </p>
         </header>
 
-        {/* Passport */}
-        <section className="border-2 border-paper/15 p-5">
-          <div className="flex items-start justify-between gap-4">
+        {/* Passport — inline SVG so the dashboard shows the artifact
+            itself, not a card that navigates away. */}
+        <section>
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
             <div>
-              <div className="text-xs font-bold uppercase tracking-widest text-paper/50">
+              <h2 className="text-xs font-bold uppercase tracking-widest text-paper/50">
                 Passport
-              </div>
-              <div className="mt-1 text-lg font-black">Your Town passport</div>
-              <p className="mt-2 text-xs text-paper/70">
-                Every town you visit lands a stamp. Shareable, downloadable,
-                follows you across towns.
-              </p>
+              </h2>
+              {passport ? (
+                <div className="mt-1 text-[10px] font-mono uppercase tracking-widest text-paper/40">
+                  {stampCount} stamp{stampCount === 1 ? "" : "s"} · {passport.passportId}
+                </div>
+              ) : null}
             </div>
-            <a
-              href="/passport"
-              className="shrink-0 border-2 border-paper/30 px-3 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-white/10"
-            >
-              Open passport →
-            </a>
+            <div className="flex items-center gap-2">
+              {shareUrl ? <CopyLinkButton href={shareUrl} /> : null}
+              <a
+                href="/api/passport/pdf"
+                className="border-2 border-paper/30 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/10"
+                download
+              >
+                Download PDF
+              </a>
+            </div>
           </div>
+          {passportSpreads.length > 0 ? (
+            <PassportBook spreads={passportSpreads} stampCount={stampCount} />
+          ) : (
+            <div className="border-2 border-paper/15 p-6 text-center text-xs uppercase tracking-widest text-paper/50">
+              Passport unavailable
+            </div>
+          )}
         </section>
 
         {/* Towns */}
@@ -106,24 +136,17 @@ export default async function DashboardPage() {
             <h2 className="text-xs font-bold uppercase tracking-widest text-paper/50">
               Your towns
             </h2>
-            <a
-              href="https://town.getcore.me"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs font-bold uppercase tracking-wider text-paper/70 hover:text-paper"
-            >
-              + New town
-            </a>
+            <NewTownButton />
           </div>
 
           {townCount === 0 ? (
-            <div className="border-2 border-paper/15 p-6 text-center">
+            <div className="flex flex-col items-center gap-3 border-2 border-paper/15 p-6 text-center">
               <p className="text-sm font-bold text-paper/80">
                 You don&apos;t have any towns yet.
               </p>
-              <p className="mt-2 text-xs text-paper/60">
-                Use the CLI ({<code className="font-mono">pnpm dlx @redplanethq/town init</code>}) or the &ldquo;+ New town&rdquo; link above.
-              </p>
+              <NewTownButton className="border-2 border-paper/30 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/10">
+                + New town
+              </NewTownButton>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

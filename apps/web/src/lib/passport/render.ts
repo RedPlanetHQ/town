@@ -4,8 +4,11 @@ import { PASSPORT_THEMES, type PassportTheme } from "./theme";
 
 export const SPREAD_WIDTH = 900;
 export const SPREAD_HEIGHT = 560;
-export const STAMPS_ON_FIRST_SPREAD = 6;
-export const STAMPS_PER_FULL_SPREAD = 12;
+// Each page holds 5 stamps. Spread 1 has identity on the left + 5
+// stamps on the right; every following spread has 5 left + 5 right.
+export const STAMPS_PER_PAGE = 5;
+export const STAMPS_ON_FIRST_SPREAD = STAMPS_PER_PAGE;
+export const STAMPS_PER_FULL_SPREAD = STAMPS_PER_PAGE * 2;
 
 const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
@@ -131,9 +134,13 @@ function renderStamp(stamp: RenderedStamp, cx: number, cy: number, rotation: num
   </g>`;
 }
 
+// 5 slots per page — 3 across the top row, 2 centered on the bottom
+// row. Index 5 is the "next stamp" placeholder slot for the final
+// (partially filled) page.
 const PAGE_STAMP_POSITIONS: Array<[number, number]> = [
-  [70, 105], [200, 115], [320, 105],
-  [80, 235], [210, 230], [320, 240],
+  [ 80, 110], [200, 115], [320, 108],
+  [140, 240], [270, 235],
+  [200, 348], // placeholder position when the last page has <5 stamps
 ];
 
 interface StampsPageOpts {
@@ -158,7 +165,7 @@ function renderStampsPage(opts: StampsPageOpts): string {
   }).join("\n");
 
   let placeholder = "";
-  if (isLastPage && stamps.length < 6) {
+  if (isLastPage && stamps.length < STAMPS_PER_PAGE) {
     const [dx, dy] = PAGE_STAMP_POSITIONS[stamps.length]!;
     placeholder = `<g transform="translate(${originX + dx}, ${originY + dy})" opacity="0.2">
       <circle cx="0" cy="0" r="42" fill="none" stroke="__INK__" stroke-width="2" stroke-dasharray="6 6"/>
@@ -187,8 +194,8 @@ function stampsForSpread(all: RenderedStamp[], spreadIndex: number): { left: Ren
   }
   const start = STAMPS_ON_FIRST_SPREAD + (spreadIndex - 1) * STAMPS_PER_FULL_SPREAD;
   return {
-    left: all.slice(start, start + 6),
-    right: all.slice(start + 6, start + 12),
+    left: all.slice(start, start + STAMPS_PER_PAGE),
+    right: all.slice(start + STAMPS_PER_PAGE, start + STAMPS_PER_FULL_SPREAD),
   };
 }
 
