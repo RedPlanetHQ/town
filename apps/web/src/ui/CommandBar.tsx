@@ -10,41 +10,70 @@ import { useEffect, useMemo, useState } from "react";
 import { Command } from "cmdk";
 
 import { getCachedPlot } from "../game/plotClient";
+import { getNpcs, onNpcsChange, type NpcRow } from "../game/npcs";
 import { teleportTo } from "../game/teleport";
 import { ui } from "./store";
 
 interface BuildingEntry {
   id: string;
   label: string;
-  subtitle: string;
+  residents: NpcRow[];         // NPCs that live in this building
+  residentNames: string;       // display string ("Cosma, Linnea")
+  residentSearchTerm: string;  // lowercased for cmdk's filter value
+}
+
+// Title-case a building id like "gilded-fox" → "Gilded Fox". Only used
+// as a fallback when the plot doesn't ship an explicit label.
+function titleCase(id: string): string {
+  return id
+    .replace(/[-_]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0]!.toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
 }
 
 function buildingLabel(id: string, raw: string | undefined): string {
   if (raw && raw.trim()) return raw;
-  return id.replace(/[-_]/g, " ").toUpperCase();
-}
-
-function buildingSubtitle(category: string, plotKey: string): string {
-  const cat = category.toLowerCase();
-  const key = plotKey.replace(/^custom:/, "");
-  return `${cat} · ${key}`;
+  return titleCase(id);
 }
 
 export function CommandBar() {
   const [query, setQuery] = useState("");
+  // Snapshot NPCs once at mount and re-tick when the module cache
+  // resolves — the palette is short-lived, but the NPC roster arrives
+  // asynchronously and might not be there yet when Cmd+K is first hit.
+  const [npcTick, setNpcTick] = useState(0);
+  useEffect(() => {
+    const off = onNpcsChange(() => setNpcTick((t) => t + 1));
+    return off;
+  }, []);
 
-  // Snapshot the plot at open-time. The palette is short-lived and the
-  // plot rarely changes mid-session; re-reading on every keystroke would
-  // let a poll-triggered rerender wipe the current selection.
   const buildings = useMemo<BuildingEntry[]>(() => {
     const plot = getCachedPlot();
     if (!plot) return [];
-    return plot.buildings.map((b) => ({
-      id: b.id,
-      label: buildingLabel(b.id, b.label),
-      subtitle: buildingSubtitle(b.category, b.plotKey),
-    }));
-  }, []);
+    // Group the flat NPC list by buildingId so each row can render its
+    // residents inline. We depend on `npcTick` so the memo recomputes
+    // when the roster loads.
+    void npcTick;
+    const byBuilding = new Map<string, NpcRow[]>();
+    for (const npc of getNpcs()) {
+      const bucket = byBuilding.get(npc.buildingId);
+      if (bucket) bucket.push(npc);
+      else byBuilding.set(npc.buildingId, [npc]);
+    }
+    return plot.buildings.map((b) => {
+      const residents = byBuilding.get(b.id) ?? [];
+      const residentNames = residents.map((n) => n.name).join(", ");
+      return {
+        id: b.id,
+        label: buildingLabel(b.id, b.label),
+        residents,
+        residentNames,
+        residentSearchTerm: residentNames.toLowerCase(),
+      };
+    });
+  }, [npcTick]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -109,14 +138,19 @@ export function CommandBar() {
               {buildings.map((b) => (
                 <Command.Item
                   key={b.id}
-                  value={`${b.label} ${b.id} ${b.subtitle}`}
+                  // cmdk filters against the `value` string. Folding
+                  // the resident names in here means typing an NPC's
+                  // name lands you on the building they live in.
+                  value={`${b.label} ${b.id} ${b.residentSearchTerm}`}
                   onSelect={() => onSelect(b.id)}
                   className="flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm text-paper/85 aria-selected:bg-paper/[0.08] aria-selected:text-paper"
                 >
                   <span className="flex flex-col gap-0.5 truncate">
                     <span className="truncate font-medium">{b.label}</span>
-                    <span className="truncate text-[10px] uppercase tracking-[0.18em] text-paper/45">
-                      {b.subtitle}
+                    <span className="truncate text-[10px] tracking-[0.02em] text-paper/45">
+                      {b.residents.length > 0
+                        ? b.residentNames
+                        : "no residents yet"}
                     </span>
                   </span>
                   <span className="text-[10px] uppercase tracking-widest text-paper/40">
