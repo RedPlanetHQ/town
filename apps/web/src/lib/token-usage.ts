@@ -108,8 +108,11 @@ export async function recordTokenUsage(
       // the chat routes stops new calls before this normally matters,
       // but a burst of concurrent onFinish handlers could still race
       // past the threshold. GREATEST(current - debit, 0) is safe.
+      // No schema prefix — the connection's search_path picks the right
+      // one (public or core depending on DATABASE_URL). Hardcoding
+      // `core.` failed on deploys whose DB uses `?schema=public`.
       await prisma.$executeRaw`
-        UPDATE core."Aura"
+        UPDATE "Aura"
            SET current    = GREATEST(current - ${debit}, 0),
                "updatedAt" = NOW()
          WHERE "townId" = ${input.townId}

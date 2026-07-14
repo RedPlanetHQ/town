@@ -30,8 +30,11 @@ export async function creditFirstVisitAura(input: {
       select: { id: true },
     });
     if (existing) return;
+    // No schema prefix — the connection's search_path picks the right
+    // one (public or core depending on DATABASE_URL). Hardcoding
+    // `core.` failed on deploys whose DB uses `?schema=public`.
     await prisma.$executeRaw`
-      UPDATE core."Aura"
+      UPDATE "Aura"
          SET current = LEAST(current + ${AURA_GUEST_CREDIT}, max),
              "updatedAt" = NOW()
        WHERE "townId" = ${input.townId}
