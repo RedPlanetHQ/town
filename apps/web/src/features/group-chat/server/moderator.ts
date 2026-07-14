@@ -30,7 +30,7 @@ import {
   tokensFrom,
 } from "@/lib/token-usage";
 
-const ROOM_COOLDOWN_MS = 8_000;
+const ROOM_COOLDOWN_MS = 5_000;
 
 // `${channelId}::${topicId ?? "general"}` → last NPC speak timestamp
 // (ms). Scoped per-topic so a chatty thread doesn't gag a quiet one
