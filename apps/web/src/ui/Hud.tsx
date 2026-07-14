@@ -112,6 +112,14 @@ function IdentityMenu({
           role="menu"
           className="nb-card-dark absolute left-0 top-full z-40 mt-1 flex min-w-[180px] flex-col p-1"
         >
+          <a
+            role="menuitem"
+            href="/dashboard"
+            className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5"
+            onClick={() => setOpen(false)}
+          >
+            Dashboard…
+          </a>
           <button
             type="button"
             role="menuitem"

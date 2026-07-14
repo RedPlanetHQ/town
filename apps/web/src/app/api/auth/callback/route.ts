@@ -21,6 +21,7 @@ import {
 } from "@/lib/oauth";
 import { ensurePassportId } from "@/lib/passport/id";
 import { createSession, setSessionCookie } from "@/lib/session";
+import { ensureFirstTown } from "@/lib/town";
 
 export async function GET(req: NextRequest) {
   const cfg = getOAuthConfig();
@@ -115,6 +116,16 @@ export async function GET(req: NextRequest) {
     // back to a TP-PENDING label and the next login retries.
   });
 
+  // First-time signup gets a starter town auto-provisioned. No-op if
+  // the user already owns one, so a re-login on a different workspace
+  // that lacks towns will bootstrap that workspace's default too.
+  const firstTownCreated = await ensureFirstTown(user.id, user.name).catch(
+    (err) => {
+      console.warn("[auth-callback] ensureFirstTown failed", err);
+      return false;
+    },
+  );
+
   const session = await createSession({ userId: user.id, tokens });
   await setSessionCookie(session.id);
 
@@ -129,7 +140,10 @@ export async function GET(req: NextRequest) {
   // Without this, the previously-served guest page (rendered when the
   // user clicked Sign in) could be re-used after the redirect, hiding
   // the just-created onboarding screen until a hard refresh.
-  const target = stored.redirectAfter ?? "/";
+  // Fresh signups land on the dashboard so they see their new town +
+  // passport right away. Returning users honor the caller-provided
+  // redirect (or `/`).
+  const target = firstTownCreated ? "/dashboard" : (stored.redirectAfter ?? "/");
   try {
     revalidatePath(target, "page");
     revalidatePath(target, "layout");

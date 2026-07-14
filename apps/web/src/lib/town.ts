@@ -171,6 +171,60 @@ export async function pickTown({ ownerId, name, slug: explicitSlug }: PickTownIn
   return town;
 }
 
+/**
+ * Auto-create a town for a fresh user the first time they sign in.
+ * Idempotent — no-op if the user already owns any town.
+ *
+ * Returns `true` if a town was actually created this call, so callers
+ * (e.g. the OAuth callback) can decide whether to route the user to
+ * their new dashboard instead of the referrer.
+ *
+ * Slug picking: starts from the user's name; on `slug-taken` retries
+ * with `<slug>-<short-random>` a few times before giving up. If we
+ * can't land a free slug we don't throw — the user just lands on
+ * dashboard with zero towns and the "create town" CTA visible.
+ */
+export async function ensureFirstTown(
+  ownerId: string,
+  ownerName: string,
+): Promise<boolean> {
+  const existing = await prisma.town.count({ where: { ownerId } });
+  if (existing > 0) return false;
+
+  const baseSlug = normalizeSlug(ownerName) || "town";
+  const townName = ownerName?.trim() ? `${ownerName.trim()}'s town` : "My town";
+  const candidates = [
+    baseSlug,
+    `${baseSlug}-${randomSuffix(4)}`,
+    `${baseSlug}-${randomSuffix(6)}`,
+  ];
+
+  for (const slug of candidates) {
+    if (!isValidSlug(slug)) continue;
+    try {
+      await pickTown({ ownerId, name: townName, slug });
+      return true;
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === "slug-taken") continue;
+      if (code === "town-limit-reached") return false;
+      console.warn("[first-town] create failed", e);
+      return false;
+    }
+  }
+  console.warn("[first-town] exhausted slug candidates for", ownerId);
+  return false;
+}
+
+function randomSuffix(len: number): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let out = "";
+  for (let i = 0; i < len; i++) {
+    out += chars[Math.floor(Math.random() * chars.length)]!;
+  }
+  return out;
+}
+
 export async function rotateShareCode(townId: string) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const shareCode = generateShareCode();
