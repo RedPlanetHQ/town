@@ -7,9 +7,9 @@
 import { useEffect, useState } from "react";
 
 const TIERS = [
-  { cents: 500,  aura: 5000  },
-  { cents: 1000, aura: 10000 },
-  { cents: 2500, aura: 25000 },
+  { cents:  500, aura:  100 }, // $5  →  100 aura
+  { cents: 1000, aura:  500 }, // $10 →  500 aura
+  { cents: 1500, aura: 1000 }, // $15 → 1000 aura
 ];
 
 export function BuyAuraModal({

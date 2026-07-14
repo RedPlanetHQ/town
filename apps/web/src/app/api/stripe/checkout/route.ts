@@ -17,12 +17,27 @@ import { getStripe, type CheckoutMetadata } from "@/lib/stripe";
 
 export const runtime = "nodejs";
 
-const AURA_TIERS_CENTS = [500, 1000, 2500] as const;    // $5 / $10 / $25
-const AURA_RATE_PER_DOLLAR = 1000;                       // 1000 aura per USD
+// Tiered aura packs — bigger buys get a better per-aura rate.
+// Order matters: the /api/stripe/checkout GET returns this shape so
+// the UI can render the tiers without duplicating the constants.
+const AURA_TIERS = [
+  { cents:  500, aura:  100 }, // $5  → 100 aura
+  { cents: 1000, aura:  500 }, // $10 → 500 aura (5×)
+  { cents: 1500, aura: 1000 }, // $15 → 1000 aura (10×)
+] as const;
+
+// Per-town permanent aura cap upgrade — one-time purchase, raises
+// `Aura.max` to `newMax`. Also bumps `current` by the delta so the
+// upgrade feels immediate.
+const AURA_UPGRADES = [
+  { cents: 5000, newMax: 10000 }, // $50 → 10,000 max
+] as const;
+
 const TOWN_SLOT_CENTS = 1000;                            // $10 for +1 slot
 
 type Body =
   | { intent: "aura_pack"; townSlug: string; amountCents: number }
+  | { intent: "aura_upgrade"; townSlug: string; amountCents: number }
   | { intent: "town_slot" };
 
 export async function POST(req: Request) {
@@ -44,7 +59,8 @@ export async function POST(req: Request) {
   const stripe = getStripe();
 
   if (body.intent === "aura_pack") {
-    if (!AURA_TIERS_CENTS.includes(body.amountCents as (typeof AURA_TIERS_CENTS)[number])) {
+    const tier = AURA_TIERS.find((t) => t.cents === body.amountCents);
+    if (!tier) {
       return NextResponse.json({ error: "bad-tier" }, { status: 400 });
     }
     const town = await prisma.town.findUnique({
@@ -60,10 +76,8 @@ export async function POST(req: Request) {
       intent: "aura_pack",
       userId: session.user.id,
       townId: town.id,
-      ratePerDollar: String(AURA_RATE_PER_DOLLAR),
+      auraAmount: String(tier.aura),
     };
-
-    const auraAmount = Math.floor((body.amountCents / 100) * AURA_RATE_PER_DOLLAR);
 
     const checkout = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -72,10 +86,54 @@ export async function POST(req: Request) {
           price_data: {
             currency: "usd",
             product_data: {
-              name: `Aura top-up · ${auraAmount.toLocaleString()} aura`,
+              name: `Aura top-up · ${tier.aura.toLocaleString()} aura`,
               description: `For ${town.name}`,
             },
-            unit_amount: body.amountCents,
+            unit_amount: tier.cents,
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: metadata as unknown as Record<string, string>,
+      success_url: `${origin}/${body.townSlug}?stripe=success`,
+      cancel_url: `${origin}/${body.townSlug}?stripe=cancel`,
+    });
+
+    return NextResponse.json({ url: checkout.url });
+  }
+
+  if (body.intent === "aura_upgrade") {
+    const tier = AURA_UPGRADES.find((t) => t.cents === body.amountCents);
+    if (!tier) {
+      return NextResponse.json({ error: "bad-tier" }, { status: 400 });
+    }
+    const town = await prisma.town.findUnique({
+      where: { slug: body.townSlug },
+      select: { id: true, name: true, ownerId: true },
+    });
+    if (!town) return NextResponse.json({ error: "town-not-found" }, { status: 404 });
+    if (town.ownerId !== session.user.id) {
+      return NextResponse.json({ error: "not-owner" }, { status: 403 });
+    }
+
+    const metadata: CheckoutMetadata = {
+      intent: "aura_upgrade",
+      userId: session.user.id,
+      townId: town.id,
+      newMax: String(tier.newMax),
+    };
+
+    const checkout = await stripe.checkout.sessions.create({
+      mode: "payment",
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `Aura cap upgrade · ${tier.newMax.toLocaleString()} max`,
+              description: `Permanent upgrade for ${town.name}`,
+            },
+            unit_amount: tier.cents,
           },
           quantity: 1,
         },
@@ -121,8 +179,8 @@ export async function POST(req: Request) {
  *  build still returns the shape for potential debug pages. */
 export function GET() {
   return NextResponse.json({
-    auraTiersCents: AURA_TIERS_CENTS,
-    auraRatePerDollar: AURA_RATE_PER_DOLLAR,
+    auraTiers: AURA_TIERS,
+    auraUpgrades: AURA_UPGRADES,
     townSlotCents: TOWN_SLOT_CENTS,
     pricingEnabled: isPricingEnabled(),
   });

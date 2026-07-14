@@ -12,6 +12,8 @@ import { prisma } from "@/lib/db";
 import { isPricingEnabled } from "@/lib/pricing";
 import { getSessionFromCookie } from "@/lib/session";
 import { getTownsByOwner } from "@/lib/town";
+import { BillingPurchases } from "@/ui/BillingPurchases";
+import { BYOKSection } from "@/ui/BYOKSection";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +40,7 @@ export default async function DashboardPage() {
   const pricingOn = isPricingEnabled();
 
   return (
-    <main className="min-h-screen bg-black text-paper">
+    <main className="h-screen overflow-y-auto bg-black text-paper">
       {/* Top nav — Explore left, logo centered, GitHub right. */}
       <nav className="border-b-2 border-paper/10">
         <div className="mx-auto grid max-w-5xl grid-cols-3 items-center px-4 py-3">
@@ -170,23 +172,7 @@ export default async function DashboardPage() {
         </section>
 
         {/* Settings — BYOK */}
-        <section className="border-2 border-paper/15 p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-xs font-bold uppercase tracking-widest text-paper/50">
-                Settings
-              </div>
-              <div className="mt-1 text-lg font-black">Model keys · BYOK</div>
-              <p className="mt-2 text-xs text-paper/70">
-                Bring your own OpenAI, Anthropic, or Ollama Cloud key — chats
-                that use your key skip the aura debit entirely. Coming soon.
-              </p>
-            </div>
-            <span className="shrink-0 border-2 border-paper/20 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-paper/50">
-              Coming soon
-            </span>
-          </div>
-        </section>
+        <BYOKSection />
 
         {/* Billing */}
         <section className="border-2 border-paper/15 p-5">
@@ -200,6 +186,14 @@ export default async function DashboardPage() {
                 Aura top-ups and town-slot purchases. Every grant is logged
                 below with the Stripe session id.
               </p>
+
+              {pricingOn ? (
+                <div className="mt-4">
+                  <BillingPurchases
+                    towns={towns.map((t) => ({ slug: t.slug, name: t.name }))}
+                  />
+                </div>
+              ) : null}
 
               {purchases.length > 0 ? (
                 <ul className="mt-4 flex flex-col gap-2">
@@ -221,15 +215,11 @@ export default async function DashboardPage() {
                 <p className="mt-4 text-xs text-paper/50">No purchases yet.</p>
               )}
             </div>
-            <span
-              className={`shrink-0 border-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
-                pricingOn
-                  ? "border-paper/30 text-paper"
-                  : "border-paper/20 text-paper/50"
-              }`}
-            >
-              {pricingOn ? "Live" : "Disabled"}
-            </span>
+            {pricingOn ? null : (
+              <span className="shrink-0 border-2 border-paper/20 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-paper/50">
+                Disabled
+              </span>
+            )}
           </div>
         </section>
       </div>

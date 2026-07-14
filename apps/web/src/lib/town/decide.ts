@@ -179,7 +179,7 @@ export async function decide(
 
   try {
     await generateText({
-      model: getChatModel(),
+      model: getChatModel().model,
       tools,
       stopWhen: stepCountIs(8),
       system,

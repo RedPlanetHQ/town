@@ -23,7 +23,12 @@ export function getWebhookSecret(): string {
 }
 
 /** Shape of what the checkout API stashes in `session.metadata`.
- *  The webhook re-parses this and routes to a grant handler. */
+ *  The webhook re-parses this and routes to a grant handler.
+ *
+ *  For aura_pack we encode the concrete `auraAmount` per tier rather
+ *  than a `ratePerDollar` — pricing is tiered (bigger buys get better
+ *  rates) so the amount isn't a linear function of the dollar figure. */
 export type CheckoutMetadata =
-  | { intent: "aura_pack"; userId: string; townId: string; ratePerDollar: string }
+  | { intent: "aura_pack"; userId: string; townId: string; auraAmount: string }
+  | { intent: "aura_upgrade"; userId: string; townId: string; newMax: string }
   | { intent: "town_slot"; userId: string };

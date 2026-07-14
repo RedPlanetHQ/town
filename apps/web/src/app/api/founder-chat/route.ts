@@ -262,7 +262,7 @@ export async function POST(req: Request) {
 
   let model;
   try {
-    model = getChatModel();
+    model = getChatModel().model;
   } catch (e) {
     return new Response(
       JSON.stringify({ error: "llm-not-configured", detail: (e as Error).message }),

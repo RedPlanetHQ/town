@@ -76,9 +76,11 @@ export function computeAuraDebit(input: {
 }
 
 export async function recordTokenUsage(
-  input: RecordTokenUsageInput,
+  input: RecordTokenUsageInput & { bypassDebit?: boolean },
 ): Promise<void> {
-  const debit = computeAuraDebit(input);
+  // BYOK turns still get logged for analytics + rate accounting, but
+  // don't debit aura — the user is paying the provider directly.
+  const debit = input.bypassDebit ? 0 : computeAuraDebit(input);
   try {
     // Two writes; we don't need atomicity between them — a token log
     // without a debit (or a debit without a log) is fine and rare.

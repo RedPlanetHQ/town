@@ -398,6 +398,32 @@ body {
     overflow: hidden;
 }
 
+/* Flat, muted scrollbar — hard edges, no rounding, but the thumb sits
+ * at ~35% paper against a transparent track so it reads as a bar
+ * rather than a spotlight. Hover nudges to ~55%. No hover-white, no
+ * inset shadow. */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(240, 236, 220, 0.35) transparent;
+}
+*::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+    background: rgba(240, 236, 220, 0.35);
+    border-radius: 0;
+}
+*::-webkit-scrollbar-thumb:hover {
+    background: rgba(240, 236, 220, 0.55);
+}
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
 body {
     font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
     color: var(--ink);

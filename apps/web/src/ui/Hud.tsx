@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { getPlayerCharacter } from "../game/character";
 import { logout, startLogin } from "../game/auth";
-import { isPricingEnabled } from "@/lib/pricing";
 import { BuyAuraModal } from "./BuyAuraModal";
 import { CharacterAvatar } from "./CharacterAvatar";
 import { HudButton } from "./HudButton";
@@ -18,9 +17,11 @@ import type { HudKind } from "./store";
 export function Hud({
   hud,
   activeSlug,
+  pricingEnabled,
 }: {
   hud: HudKind;
   activeSlug: string | null;
+  pricingEnabled: boolean;
 }) {
   if (hud.kind === "overworld") {
     const session = hud.session;
@@ -37,6 +38,7 @@ export function Hud({
         name={name}
         character={character}
         activeSlug={activeSlug}
+        pricingEnabled={pricingEnabled}
       />
     );
   }
@@ -66,16 +68,17 @@ function IdentityMenu({
   name,
   character,
   activeSlug,
+  pricingEnabled,
 }: {
   name: string;
   character: string;
   activeSlug: string | null;
+  pricingEnabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [showNewModal, setShowNewModal] = useState(false);
   const [showBuyAura, setShowBuyAura] = useState(false);
   const [buyingSlot, setBuyingSlot] = useState(false);
-  const pricingEnabled = isPricingEnabled();
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

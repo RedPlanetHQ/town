@@ -20,6 +20,7 @@ import { recordTownActivity } from "@/lib/town-activity";
 import { getTownBySlug } from "@/lib/town";
 import { normalizeCode, parseVisitorCookie, visitorCookieName } from "@/lib/town-code";
 import { upsertPassportStamp } from "@/lib/passport/stamp";
+import { isPricingEnabled } from "@/lib/pricing";
 import { PassportStampToast } from "@/ui/PassportStampToast";
 import { TownGame } from "@/ui/TownGame";
 import { VisitorGate } from "@/ui/VisitorGate";
@@ -154,6 +155,7 @@ export default async function TownPage({
         townSlug={town.slug}
         townName={town.name}
         townDescription={town.description ?? null}
+        pricingEnabled={isPricingEnabled()}
       />
     );
   }
@@ -203,6 +205,7 @@ export default async function TownPage({
           visitorName={visitor.n}
           visitorCharacter={visitor.ch}
           ownerParticipantKey={userParticipantKey(town.ownerId)}
+          pricingEnabled={isPricingEnabled()}
         />
         <PassportStampToast townSlug={town.slug} townName={town.name} />
       </>

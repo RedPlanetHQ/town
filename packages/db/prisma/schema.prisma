@@ -64,6 +64,7 @@ model User {
   tokenUsage           TokenUsage[]
   entitlementGrants    EntitlementGrant[]
   passportStamps       PassportStamp[]
+  modelKeys            ModelKey[]
 
   @@unique([coreUserId, workspaceId])
   @@index([email])
@@ -734,3 +735,25 @@ model EntitlementGrant {
   @@index([townId, createdAt])
 }
 
+
+// User's own LLM API key for a given provider. One row per (user,
+// provider). Values are AES-256-GCM-encrypted at rest with a master
+// key from `BYOK_ENCRYPTION_KEY`; the plaintext key is never returned
+// from the API — the UI only sees a "SET" flag and the last-4 hint.
+//
+// When a chat runs against a user's own key, `recordTokenUsage` skips
+// the aura debit — the user is paying the provider directly.
+model ModelKey {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // "anthropic" | "openai" | "ollama"
+  provider     String
+  encryptedKey String
+  last4        String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, provider])
+  @@index([userId])
+}

@@ -46,6 +46,7 @@ import { z } from "zod";
 import { readActiveSlug } from "@/lib/active-slug";
 import { resolveUser } from "@/lib/auth-bearer";
 import { getChatModel } from "@/lib/chat-model";
+import { resolveByokForUser } from "@/lib/byok/store";
 import { ingestNpcTurn, npcChatSessionId } from "@/lib/core-memory";
 import { getOwnerCoreToken } from "@/lib/core-token";
 import { prisma } from "@/lib/db";
@@ -515,9 +516,18 @@ export async function POST(req: Request) {
     );
   }
 
+  // BYOK is keyed to the town owner (they're the one who'd otherwise
+  // spend aura from the town pool). When they've stored an Anthropic or
+  // OpenAI key, this turn is billed to them directly and no aura is
+  // debited — otherwise we fall through to the platform's model + aura.
+  const ownerByok = await resolveByokForUser(npcOwnerId);
+
   let model;
+  let usedBYOK = false;
   try {
-    model = getChatModel();
+    const picked = getChatModel({ userKey: ownerByok ?? undefined });
+    model = picked.model;
+    usedBYOK = picked.usedBYOK;
   } catch (e) {
     return new Response(
       JSON.stringify({
@@ -617,6 +627,7 @@ export async function POST(req: Request) {
         outputTokens: tokens.outputTokens,
         npcId: npc!.id,
         buildingId: npc!.buildingId,
+        bypassDebit: usedBYOK,
       });
     },
   });

@@ -238,7 +238,7 @@ export async function pickResponder(
 
   let model;
   try {
-    model = getChatModel();
+    model = getChatModel().model;
   } catch {
     // No LLM configured — silent fallback. The room still works as a
     // human-only chat.

@@ -27,7 +27,15 @@ export async function applyStripeGrant(opts: {
         userId: metadata.userId,
         townId: metadata.townId,
         amountCents,
-        ratePerDollar: Number(metadata.ratePerDollar),
+        auraAmount: Number(metadata.auraAmount),
+        stripeSessionId,
+      });
+      break;
+    case "aura_upgrade":
+      await grantAuraUpgrade({
+        userId: metadata.userId,
+        townId: metadata.townId,
+        newMax: Number(metadata.newMax),
         stripeSessionId,
       });
       break;
@@ -44,10 +52,10 @@ async function grantAuraPack(opts: {
   userId: string;
   townId: string;
   amountCents: number;
-  ratePerDollar: number;
+  auraAmount: number;
   stripeSessionId: string;
 }): Promise<void> {
-  const auraToGrant = Math.floor((opts.amountCents / 100) * opts.ratePerDollar);
+  const auraToGrant = Math.max(0, Math.floor(opts.auraAmount));
   if (auraToGrant <= 0) return;
 
   // Add to `current` only. `max` stays put, so a top-up gives a burst
@@ -66,6 +74,62 @@ async function grantAuraPack(opts: {
       delta: auraToGrant,
       source: "purchase",
       reason: `stripe:${(opts.amountCents / 100).toFixed(2)}usd`,
+      ref: opts.stripeSessionId,
+    },
+  });
+}
+
+async function grantAuraUpgrade(opts: {
+  userId: string;
+  townId: string;
+  newMax: number;
+  stripeSessionId: string;
+}): Promise<void> {
+  const target = Math.max(0, Math.floor(opts.newMax));
+  if (target <= 0) return;
+
+  // Idempotent + monotonic: only raises the cap. Also bumps `current`
+  // by the same delta so the upgrade feels immediate — otherwise the
+  // town would still be sitting at its old current value.
+  const row = await prisma.aura.findUnique({
+    where: { townId: opts.townId },
+    select: { current: true, max: true },
+  });
+  if (!row) return;
+  if (row.max >= target) {
+    // Already at or above this cap — log the grant anyway for audit
+    // + refund tooling, but don't touch the row.
+    await prisma.entitlementGrant.create({
+      data: {
+        userId: opts.userId,
+        townId: opts.townId,
+        target: "auraMax",
+        delta: 0,
+        source: "purchase",
+        reason: `stripe:cap-noop:${target}`,
+        ref: opts.stripeSessionId,
+      },
+    });
+    return;
+  }
+
+  const delta = target - row.max;
+  await prisma.aura.update({
+    where: { townId: opts.townId },
+    data: {
+      max: target,
+      current: { increment: delta },
+    },
+  });
+
+  await prisma.entitlementGrant.create({
+    data: {
+      userId: opts.userId,
+      townId: opts.townId,
+      target: "auraMax",
+      delta,
+      source: "purchase",
+      reason: `stripe:cap-${target}`,
       ref: opts.stripeSessionId,
     },
   });

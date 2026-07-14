@@ -240,7 +240,7 @@ export async function generateAndPublishNpcReply(
 
   let model;
   try {
-    model = getChatModel();
+    model = getChatModel().model;
   } catch (e) {
     console.warn("[group-chat] no LLM model configured, skipping reply", e);
     return;

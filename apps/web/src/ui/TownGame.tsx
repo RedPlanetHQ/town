@@ -84,6 +84,10 @@ export type TownGameProps =
        *  Null when the owner hasn't authored one; the dialogue falls
        *  back to a generic "welcome to <town>" line. */
       townDescription?: string | null;
+      /** Resolved from the server-only `PRICING_ENABLED` env by the
+       *  parent server component. Threaded to the identity dropdown
+       *  so the Buy items only render when payments are on. */
+      pricingEnabled?: boolean;
     }
   | {
       viewerMode: "visitor";
@@ -96,6 +100,7 @@ export type TownGameProps =
       // population badge to tell the invitee whether the owner is
       // currently in the town.
       ownerParticipantKey: string;
+      pricingEnabled?: boolean;
     };
 
 export function TownGame(props: TownGameProps = {}) {
@@ -384,7 +389,11 @@ export function TownGame(props: TownGameProps = {}) {
             townSlug={(props as { townSlug: string }).townSlug}
           />
         ) : hud ? (
-          <Hud hud={hud} activeSlug={ownerSlug ?? null} />
+          <Hud
+            hud={hud}
+            activeSlug={ownerSlug ?? null}
+            pricingEnabled={props.pricingEnabled ?? false}
+          />
         ) : null}
         <CommunityLinks />
       </div>
