@@ -7,7 +7,7 @@
 
 import { prisma } from "./db";
 
-export const AURA_GUEST_CREDIT = 5;
+export const AURA_GUEST_CREDIT = 10;
 
 /** Credit AURA_GUEST_CREDIT aura the first time this visitor lands on
  *  this town. Idempotent: once a TownActivity `visit` row exists for

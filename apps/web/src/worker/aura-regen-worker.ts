@@ -22,7 +22,8 @@ import {
 import { getRedisConnection } from "../lib/queue/redis";
 
 // How much aura a town regenerates per hourly tick. With the default
-// max of 1000, an emptied town refills in 100 hours.
+// max of 1000 and the token-cost formula (~18 aura for a typical
+// 4k/500 turn), a fully-emptied town refills in ~100 hours.
 export const AURA_REGEN_AMOUNT = 10;
 
 /** True when the error looks like an RDS-killed-idle-connection

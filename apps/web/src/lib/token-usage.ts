@@ -51,16 +51,27 @@ export interface RecordTokenUsageInput {
  *  between the debit clamp here and the chat-route guard. */
 export const AURA_SLEEP_THRESHOLD = 100;
 
-/** Compute the aura debit for one LLM call. Rounds to the nearest
- *  integer so a 500-token turn still costs 1 aura instead of vanishing
- *  into 0.05 that Postgres would truncate away. */
+/** Compute the aura debit for one LLM call.
+ *
+ * Rates (see /docs/ or PR body — mirrors real LLM pricing shape, with
+ * output ~10× more expensive per token than input):
+ *   • 1 aura per 500  input tokens
+ *   • 1 aura per  50  output tokens
+ *
+ * Rounded to the nearest integer so a 50-token reply still costs
+ * 1 aura instead of vanishing into 0.02 that Postgres would truncate.
+ *
+ * A typical 4,000 in / 500 out turn costs 8 + 10 = 18 aura; against
+ * the default 1,000 max / 100 sleep floor that gives ~50 turns per
+ * empty→sleep cycle before the town goes quiet. Regen (10/hour)
+ * refills a fully-emptied town in ~90 hours. */
 export function computeAuraDebit(input: {
   inputTokens: number;
   outputTokens: number;
 }): number {
   const inTokens = Math.max(0, input.inputTokens);
   const outTokens = Math.max(0, input.outputTokens);
-  const raw = inTokens / 10_000 + outTokens / 1_000;
+  const raw = inTokens / 500 + outTokens / 50;
   return Math.max(0, Math.round(raw));
 }
 

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { getPlayerCharacter } from "../game/character";
 import { logout, startLogin } from "../game/auth";
+import { isPricingEnabled } from "@/lib/pricing";
+import { BuyAuraModal } from "./BuyAuraModal";
 import { CharacterAvatar } from "./CharacterAvatar";
 import { HudButton } from "./HudButton";
 import { NewTownInstructions } from "./NewTownInstructions";
@@ -71,6 +73,9 @@ function IdentityMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [showNewModal, setShowNewModal] = useState(false);
+  const [showBuyAura, setShowBuyAura] = useState(false);
+  const [buyingSlot, setBuyingSlot] = useState(false);
+  const pricingEnabled = isPricingEnabled();
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -151,6 +156,49 @@ function IdentityMenu({
               onDone={() => setOpen(false)}
             />
           ) : null}
+          {pricingEnabled && activeSlug ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5"
+              onClick={() => {
+                setOpen(false);
+                setShowBuyAura(true);
+              }}
+            >
+              Buy aura…
+            </button>
+          ) : null}
+          {pricingEnabled ? (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={buyingSlot}
+              className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5 disabled:opacity-50"
+              onClick={async () => {
+                setBuyingSlot(true);
+                try {
+                  const res = await fetch("/api/stripe/checkout", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ intent: "town_slot" }),
+                  });
+                  if (res.ok) {
+                    const body = (await res.json()) as { url?: string };
+                    if (body.url) {
+                      window.location.href = body.url;
+                      return;
+                    }
+                  }
+                } finally {
+                  setBuyingSlot(false);
+                  setOpen(false);
+                }
+              }}
+            >
+              {buyingSlot ? "Loading…" : "Buy town slot…"}
+            </button>
+          ) : null}
           <a
             role="menuitem"
             href="/explore"
@@ -176,6 +224,13 @@ function IdentityMenu({
       ) : null}
       {showNewModal ? (
         <NewTownModal onClose={() => setShowNewModal(false)} />
+      ) : null}
+      {showBuyAura && activeSlug ? (
+        <BuyAuraModal
+          townSlug={activeSlug}
+          townName={activeSlug}
+          onClose={() => setShowBuyAura(false)}
+        />
       ) : null}
     </div>
   );
