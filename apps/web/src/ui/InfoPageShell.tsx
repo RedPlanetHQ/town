@@ -1,14 +1,18 @@
-// Shared shell for the plain info pages (/feedback, /explore) so they
-// stay visually locked to the same dark theme: bg-black, paper text,
-// uppercase tracking, `text-primary` accent for a highlighted word,
-// and a "← Back to town" link at the top-left.
+// Shared shell for the plain info pages (/feedback, /explore, /passport,
+// /dashboard) so they stay visually locked to the same dark theme:
+// bg-black, paper text, uppercase tracking, `text-primary` accent for a
+// highlighted word, and a session-aware back link at the top-left.
 //
-// Kept intentionally simple — no header actions, no right-aligned
-// meta. Pages that need extra top-bar surface (a tab switcher, a
-// filter row, per-page metadata) can render it inside `children`
-// under the header.
+// Back link defaults:
+//   • signed in  → "← Back to dashboard"  (/dashboard)
+//   • signed out → "← Back to town"       (/)
+//
+// Callers can still override via `backHref` / `backLabel` when a page
+// wants to point somewhere specific.
 
 import type { ReactNode } from "react";
+
+import { getSessionFromCookie } from "@/lib/session";
 
 type MaxWidth = "2xl" | "3xl" | "4xl";
 
@@ -18,9 +22,9 @@ const MAX_WIDTH_CLASS: Record<MaxWidth, string> = {
   "4xl": "max-w-4xl",
 };
 
-export function InfoPageShell({
-  backHref = "/",
-  backLabel = "← Back to town",
+export async function InfoPageShell({
+  backHref,
+  backLabel,
   title,
   subtitle,
   maxWidth = "2xl",
@@ -34,16 +38,30 @@ export function InfoPageShell({
   maxWidth?: MaxWidth;
   children: ReactNode;
 }) {
+  // Only resolve defaults when the caller didn't override — avoids a
+  // pointless cookie read on pages that explicitly point elsewhere.
+  let resolvedHref = backHref;
+  let resolvedLabel = backLabel;
+  if (!resolvedHref || !resolvedLabel) {
+    const session = await getSessionFromCookie();
+    if (session) {
+      resolvedHref = resolvedHref ?? "/dashboard";
+      resolvedLabel = resolvedLabel ?? "← Back to dashboard";
+    } else {
+      resolvedHref = resolvedHref ?? "/";
+      resolvedLabel = resolvedLabel ?? "← Back to town";
+    }
+  }
   return (
     <main className="min-h-screen bg-black px-4 py-10 text-paper">
       <div
         className={`mx-auto flex w-full ${MAX_WIDTH_CLASS[maxWidth]} flex-col gap-8`}
       >
         <a
-          href={backHref}
+          href={resolvedHref}
           className="self-start text-xs font-bold uppercase tracking-wider text-paper/70 hover:text-paper"
         >
-          {backLabel}
+          {resolvedLabel}
         </a>
 
         <header className="flex flex-col gap-3">

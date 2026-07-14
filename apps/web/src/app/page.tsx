@@ -1,19 +1,13 @@
 // Root landing.
 //
-//  • Signed in + has Town  → redirect to /{active.slug}
-//  • Signed in + no Town   → render the CLI-instructions card
-//                            (towns are created from the CLI; no
-//                            in-browser onboarding form)
-//  • Not signed in         → guest playground (<Landing>)
+//  • Signed in     → redirect to /dashboard
+//  • Not signed in → guest playground (<Landing>)
 
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
-import { readActiveSlug } from "@/lib/active-slug";
 import { getSessionFromCookie } from "@/lib/session";
-import { getActiveTownForUser } from "@/lib/town";
 import { Landing } from "@/ui/Landing";
-import { NewTownWelcome } from "@/ui/NewTownWelcome";
 
 // Force-dynamic so the OAuth callback's redirect-to-/ always lands on
 // a freshly rendered page. cookies() already opts this route out of
@@ -46,8 +40,10 @@ export const metadata: Metadata = {
 export default async function Home() {
   const session = await getSessionFromCookie();
   if (!session) return <Landing />;
-  const cookieSlug = await readActiveSlug();
-  const active = await getActiveTownForUser(session.user.id, cookieSlug);
-  if (active) redirect(`/${active.slug}`);
-  return <NewTownWelcome userName={session.user.name} />;
+  // Signed-in users always land on the dashboard now — it's the single
+  // home for passport, towns, and (eventually) settings. The dashboard
+  // itself points at each owned town so navigation is one click deeper
+  // instead of getting silently teleported into whichever town the
+  // session-cookie last remembered.
+  redirect("/dashboard");
 }

@@ -142,14 +142,6 @@ function IdentityMenu({
           >
             Share…
           </button>
-          <a
-            role="menuitem"
-            href="/passport"
-            className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5"
-            onClick={() => setOpen(false)}
-          >
-            Passport…
-          </a>
           <SwitchTownItem
             activeSlug={activeSlug}
             onPick={() => setOpen(false)}
@@ -207,14 +199,6 @@ function IdentityMenu({
               {buyingSlot ? "Loading…" : "Buy town slot…"}
             </button>
           ) : null}
-          <a
-            role="menuitem"
-            href="/explore"
-            className="w-full px-2.5 py-1.5 text-left text-xs font-bold uppercase tracking-wider text-paper hover:bg-white/5"
-            onClick={() => setOpen(false)}
-          >
-            Browse towns…
-          </a>
           <button
             type="button"
             role="menuitem"
