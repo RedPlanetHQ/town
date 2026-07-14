@@ -211,24 +211,12 @@ export async function pickResponder(
   if (npcs.length === 0) return null;
   if (history.length === 0) return null;
 
-  const lastRow = history[history.length - 1];
-
-  // Deterministic direct-address override. If the latest message is
-  // from a human and names one of the NPCs by word-boundary match,
-  // that NPC wins — no LLM call, no cooldown gate. The moderator
-  // prompt's "if the latest message names an NPC, that NPC may reply"
-  // rule is soft and small chat models drop it under load, which is
-  // how "hi dalton" ended up routed to PG. This short-circuit is the
-  // one signal we should never let the model override.
-  //
-  // The `!lastRow.isNpc` gate is load-bearing: it prevents the
-  // override from firing when the latest message is from an NPC, so
-  // the self-reply guard further down still fully protects that case.
-  // Don't drop the gate without adding an equivalent check here.
-  if (lastRow && !lastRow.isNpc) {
-    const addressed = findAddressedNpc(lastRow.text, npcs);
-    if (addressed) return { npc: addressed, addressed: true };
-  }
+  // Every pick now goes through the LLM — no deterministic direct-
+  // address override. The old word-boundary regex was a false-positive
+  // magnet on short and common names (e.g. "the pg fund" routing to an
+  // NPC named "pg"), and it forced short-named NPCs to be gated behind
+  // a length threshold. Trust the model + the name-based fallback
+  // further down.
 
   if (!options.skipRoomCooldown) {
     const now = Date.now();
@@ -293,13 +281,20 @@ export async function pickResponder(
   }
 
   if (!pick.npcId) return null;
-  const picked = npcs.find((n) => n.id === pick.npcId);
+  let picked = npcs.find((n) => n.id === pick.npcId);
   if (!picked) {
-    // Model returned an id we didn't ship — treat as silence.
-    console.warn(
-      `[group-chat] moderator picked unknown npcId="${pick.npcId}"`,
-    );
-    return null;
+    // Small models (Haiku / 4o-mini) sometimes echo the NPC's `name`
+    // as `npcId` instead of the cuid we handed them. Fall back to a
+    // case-insensitive name match before giving up — silence on a
+    // real pick is worse than trusting the model's obvious intent.
+    const guess = pick.npcId.toLowerCase();
+    picked = npcs.find((n) => n.name.toLowerCase() === guess);
+    if (!picked) {
+      console.warn(
+        `[group-chat] moderator picked unknown npcId="${pick.npcId}"`,
+      );
+      return null;
+    }
   }
 
   // Hard guard against self-reply. The system prompt forbids it but
@@ -324,40 +319,3 @@ export function markSpoke(cooldownKey: string, _npcId: string): void {
   roomLastSpeak.set(cooldownKey, Date.now());
 }
 
-/** Word-boundary case-insensitive match on any candidate NPC's display
- *  name, tolerating first-name-only addressing. NPC display names in
- *  this codebase are typically full names ("Dalton Caldwell", "Garry
- *  Tan") but humans address them by first name ("hi dalton"). We
- *  build an alias list per NPC — the full name plus each token ≥ 3
- *  chars — then match longest alias first so "Dalton Caldwell" wins
- *  over "Dalton" if both would match, and multi-token full names beat
- *  single-token first names on tie. The ≥ 3 char floor prevents
- *  false-positive matches on tokens like "Al" or "Hu". Returns the
- *  first NPC whose alias matches, or null. */
-function findAddressedNpc(
-  text: string,
-  npcs: NpcCandidate[],
-): NpcCandidate | null {
-  const aliases: Array<{ npc: NpcCandidate; alias: string }> = [];
-  for (const n of npcs) {
-    if (!n.name) continue;
-    const seen = new Set<string>();
-    const add = (a: string) => {
-      const trimmed = a.trim();
-      if (trimmed.length < 3) return;
-      const key = trimmed.toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      aliases.push({ npc: n, alias: trimmed });
-    };
-    add(n.name);
-    for (const token of n.name.split(/\s+/)) add(token);
-  }
-  aliases.sort((a, b) => b.alias.length - a.alias.length);
-  for (const { npc, alias } of aliases) {
-    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`\\b${escaped}\\b`, "i");
-    if (re.test(text)) return npc;
-  }
-  return null;
-}
