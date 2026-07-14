@@ -569,3 +569,10 @@ Inbound webhooks land at `/api/events` and are HMAC-verified against
 - [`packages/plot/README.md`](./packages/plot/README.md) — per-user plot schema
 - [`packages/plot-gen/README.md`](./packages/plot-gen/README.md) — deterministic generator + incremental ops
 - [`docs/variant-catalog-draft.md`](./docs/variant-catalog-draft.md) — variant taxonomy + tone bible
+
+## License
+
+[AGPL-3.0 + Commons Clause](./LICENSE) — same terms as [CORE](https://github.com/RedPlanetHQ/core).
+Fork it, self-host it, learn from it; ship modifications back under the same license.
+The Commons Clause carves out selling — Poozle Inc. is the only party that can offer
+Town as a paid product or service.
