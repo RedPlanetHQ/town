@@ -548,6 +548,14 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
       // --- Collision + door routing.
       const blocked = new Set<string>();
       const doorOwner = new Map<string, PlotBuilding>();
+      // Front-proximal zone in front of each building's south face. Any
+      // walkable tile in here surfaces the `[E] Enter <Building>` prompt
+      // (even though the player isn't standing on the door). Deliberately
+      // separate from `doorOwner` so walking onto the door itself still
+      // auto-enters via the original path; the zone is only the tiles
+      // one/two rows south of the door, spanning the building's width.
+      const doorZoneOwner = new Map<string, PlotBuilding>();
+      const DOOR_ZONE_DEPTH = 2;
       for (const b of plot.buildings) {
         // Every tile in the footprint blocks…
         for (let dy = 0; dy < b.h; dy++) {
@@ -560,6 +568,18 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
         const doorTy = b.ty + b.h - 1;
         blocked.delete(doorTx + "," + doorTy);
         doorOwner.set(doorTx + "," + doorTy, b);
+        // Register the front-proximal tiles. First-writer wins so two
+        // buildings placed back-to-back don't clobber each other.
+        for (let dy = 1; dy <= DOOR_ZONE_DEPTH; dy++) {
+          const ty = doorTy + dy;
+          if (ty >= worldH) break;
+          for (let dx = 0; dx < b.w; dx++) {
+            const tx = b.tx + dx;
+            if (tx < 0 || tx >= worldW) continue;
+            const key = tx + "," + ty;
+            if (!doorZoneOwner.has(key)) doorZoneOwner.set(key, b);
+          }
+        }
       }
       // Pond tiles block.
       for (const key of pondSet) blocked.add(key);
@@ -686,6 +706,37 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
         k.go("interior", { building: legacyKey, buildingId: owner.id });
       };
 
+      // Shared "you're near a door — do the right thing" resolver. Called
+      // from three places: `onArrive` on each tile step, right after
+      // `registerTeleport` warps the player, and once immediately after
+      // spawn so the prompt lights up on cold-start. Walking onto a door
+      // tile still auto-enters (original behaviour); standing anywhere in
+      // the building's front-proximal zone shows `[E] Enter <Building>`.
+      const refreshDoorPrompt = (tile: Tile) => {
+        const key = tile.tx + "," + tile.ty;
+        const doorHere = doorOwner.get(key);
+        if (doorHere) {
+          pendingDoorOwner = null;
+          ui.setPrompt(null);
+          enterBuilding(doorHere);
+          return;
+        }
+        const zone = doorZoneOwner.get(key);
+        if (zone) {
+          pendingDoorOwner = zone;
+          ui.setPrompt({
+            key: "E",
+            label: doorLabelFor(zone),
+            accent: PALETTE.h60,
+          });
+          return;
+        }
+        if (pendingDoorOwner) {
+          pendingDoorOwner = null;
+          ui.setPrompt(null);
+        }
+      };
+
       const onArrive = (tile: Tile) => {
         // Realtime: every tile change is one publish. Quantized by design —
         // no per-tween-frame spam.
@@ -697,22 +748,7 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
         // Stream decor chunks in/out of range on every tile arrival. Cheap
         // per-move: chunk math + a Set diff over ~130 chunks total.
         decorStream.update(tile.tx, tile.ty);
-        const owner = doorOwner.get(tile.tx + "," + tile.ty);
-        // Show / clear the "E to enter <building>" prompt as the
-        // player walks on and off door tiles. Actual transition is
-        // gated on the E key press below — walking onto the door no
-        // longer teleports you in mid-step.
-        if (owner) {
-          pendingDoorOwner = owner;
-          ui.setPrompt({
-            key: "E",
-            label: doorLabelFor(owner),
-            accent: PALETTE.h60,
-          });
-        } else if (pendingDoorOwner) {
-          pendingDoorOwner = null;
-          ui.setPrompt(null);
-        }
+        refreshDoorPrompt(tile);
       };
 
       const player = makePlayer(k, spawn, isBlocked, onArrive);
@@ -728,6 +764,12 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
         ty: player.tile.ty,
         facing: player.facing,
       });
+
+      // Cold-start: fire the door-zone check once so a player who spawns
+      // right in front of their own house (the usual case — spawn is a
+      // tile south of the door) sees the E prompt without having to
+      // move first.
+      refreshDoorPrompt(player.tile);
 
       // Spawn / move / despawn remote players as the realtime channel
       // pushes updates. Filtered to "overworld" so visitors who have
@@ -840,6 +882,10 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
         });
         // Kick decor + proximity to recompute against the new tile.
         decorStream.update(tx, ty);
+        // Teleport lands the player one tile south of the door, so the
+        // zone check will fire the E prompt (or auto-enter if the
+        // destination somehow landed on the door tile itself).
+        refreshDoorPrompt({ tx, ty });
       });
 
       // SPACE opens the DM panel with the current proximity target. We
