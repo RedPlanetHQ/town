@@ -630,19 +630,25 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
           }
         : { tx: Math.floor(worldW / 2), ty: Math.floor(worldH / 2) };
 
-      const onArrive = (tile: Tile) => {
-        // Realtime: every tile change is one publish. Quantized by design —
-        // no per-tween-frame spam.
-        publishLocalPosition({
-          tx: tile.tx,
-          ty: tile.ty,
-          facing: player.facing,
-        });
-        // Stream decor chunks in/out of range on every tile arrival. Cheap
-        // per-move: chunk math + a Set diff over ~130 chunks total.
-        decorStream.update(tile.tx, tile.ty);
-        const owner = doorOwner.get(tile.tx + "," + tile.ty);
-        if (!owner) return;
+      // Which building's door is the player currently standing on?
+      // Set by `onArrive`, read by the E-key handler + used to clear
+      // the interaction prompt the moment the player steps off.
+      let pendingDoorOwner: PlotBuilding | null = null;
+
+      const doorLabelFor = (b: PlotBuilding): string => {
+        const raw = (b as unknown as { label?: string }).label;
+        if (raw && raw.trim()) return `Enter ${raw.trim()}`;
+        // Title-case the id if there's no explicit label.
+        const words = b.id
+          .replace(/[-_]/g, " ")
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((w) => w[0]!.toUpperCase() + w.slice(1).toLowerCase())
+          .join(" ");
+        return `Enter ${words}`;
+      };
+
+      const enterBuilding = (owner: PlotBuilding) => {
         // Sleeping gate — when the town's aura is under the threshold,
         // the residents are "asleep". We refuse building entry with a
         // bouncer-style dialogue instead of transitioning into an
@@ -653,9 +659,6 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
             key: "town-sleeping",
             speaker: "Bouncer",
             accent: PALETTE.h240,
-            // One line on purpose — the dialogue types out chars fast
-            // but pauses ~250ms between lines, so a three-line quip
-            // felt slow. Same copy, snappier delivery.
             lines: [
               "Kicked out. Everyone's asleep — come back when the vibes recover.",
             ],
@@ -666,8 +669,6 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
           });
           return;
         }
-        // Route into the legacy interior scene by category. Future: read
-        // owner.variantId, look up MDX-driven interior.
         const key = owner.category as
           | "HOME"
           | "OFFICE"
@@ -683,6 +684,35 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
                 ? "STORE"
                 : "OFFICE";
         k.go("interior", { building: legacyKey, buildingId: owner.id });
+      };
+
+      const onArrive = (tile: Tile) => {
+        // Realtime: every tile change is one publish. Quantized by design —
+        // no per-tween-frame spam.
+        publishLocalPosition({
+          tx: tile.tx,
+          ty: tile.ty,
+          facing: player.facing,
+        });
+        // Stream decor chunks in/out of range on every tile arrival. Cheap
+        // per-move: chunk math + a Set diff over ~130 chunks total.
+        decorStream.update(tile.tx, tile.ty);
+        const owner = doorOwner.get(tile.tx + "," + tile.ty);
+        // Show / clear the "E to enter <building>" prompt as the
+        // player walks on and off door tiles. Actual transition is
+        // gated on the E key press below — walking onto the door no
+        // longer teleports you in mid-step.
+        if (owner) {
+          pendingDoorOwner = owner;
+          ui.setPrompt({
+            key: "E",
+            label: doorLabelFor(owner),
+            accent: PALETTE.h60,
+          });
+        } else if (pendingDoorOwner) {
+          pendingDoorOwner = null;
+          ui.setPrompt(null);
+        }
       };
 
       const player = makePlayer(k, spawn, isBlocked, onArrive);
@@ -826,6 +856,16 @@ export function registerOverworldPlotScene(k: KAPLAYCtx) {
           otherKey: target.participantKey,
           otherName: target.name,
         });
+      });
+
+      // E enters the building the player is currently standing on the
+      // door tile of. `pendingDoorOwner` is set + the prompt is shown
+      // from `onArrive`; here we just consume it. Same paused-guard as
+      // SPACE so overlays don't intercept.
+      k.onKeyPress("e", () => {
+        if (ui.isPaused()) return;
+        if (!pendingDoorOwner) return;
+        enterBuilding(pendingDoorOwner);
       });
 
       // Publish the real session to the HUD, then keep it in sync as the

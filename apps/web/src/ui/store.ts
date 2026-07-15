@@ -15,9 +15,13 @@ export type HudKind =
   | { kind: "interior"; title: string; accent: string };
 
 export type PromptState = {
-  // Shown in the floating bottom-center SPACE prompt. Null = no prompt.
+  // Shown in the floating bottom-center prompt. Null = no prompt.
   label: string;
   accent: string;
+  // Which key the kbd chip renders. Defaults to "SPACE" for the talk /
+  // interact prompts. Building-entry prompts pass `"E"` so the same
+  // component reads as "E to enter" without a second visual style.
+  key?: string;
 } | null;
 
 export type PanelAction = {

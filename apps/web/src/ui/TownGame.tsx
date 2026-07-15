@@ -429,7 +429,7 @@ export function TownGame(props: TownGameProps = {}) {
         <div className="pointer-events-none absolute inset-x-0 bottom-12 z-30 flex justify-center">
           <InteractionPrompt
             prompt={{
-              label: `SPACE to talk to ${proximity.name}`,
+              label: `Talk to ${proximity.name}`,
               accent: "#1db954",
             }}
           />
