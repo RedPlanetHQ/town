@@ -75,10 +75,12 @@ export async function resolveGroupChatAccess(
   const plot = row.json as unknown as Plot;
   const building = plot.buildings.find((b) => b.id === buildingId);
   if (!building) return { error: "no-building" };
-  // TEMP: group chat is on for every building — the per-house
-  // opt-in flag (`building.groupChatEnabled`) is bypassed during
-  // the rollout. Restore the guard by re-enabling this line:
-  //   if (!building.groupChatEnabled) return { error: "house-disabled" };
+  // Per-house opt-in. Buildings without `groupChatEnabled: true` in
+  // their plot.json entry return `house-disabled` here, which maps to
+  // 403 on every /api/group-chat/* handler. The client also gates the
+  // [G] prompt on the same flag (see interior.ts) so the button
+  // simply doesn't render — this guard is the server-side backstop.
+  if (!building.groupChatEnabled) return { error: "house-disabled" };
 
   return {
     viewer: view,
