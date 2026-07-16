@@ -8,6 +8,30 @@
 import { prisma } from "./db";
 
 export const AURA_GUEST_CREDIT = 10;
+export const AURA_INTEGRATION_ACTION_COST = 10;
+
+/** Debit aura by town slug (npc-tools only has the slug, not townId).
+ *  Clamped at 0, same as the token-usage debit. Best-effort — callers
+ *  fire-and-forget. Table names unqualified so the query resolves via
+ *  the connection's search_path, matching the aura-regen worker. */
+export async function debitAuraBySlug(
+  townSlug: string,
+  amount: number,
+): Promise<void> {
+  if (amount <= 0) return;
+  try {
+    await prisma.$executeRaw`
+      UPDATE "Aura" a
+         SET current = GREATEST(a.current - ${amount}, 0),
+             "updatedAt" = NOW()
+        FROM "Town" t
+       WHERE t.slug = ${townSlug}
+         AND a."townId" = t.id
+    `;
+  } catch (e) {
+    console.warn("[aura] integration-action debit failed", e);
+  }
+}
 
 /** Credit AURA_GUEST_CREDIT aura the first time this visitor lands on
  *  this town. Idempotent: once a TownActivity `visit` row exists for

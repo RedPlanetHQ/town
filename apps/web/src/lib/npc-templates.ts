@@ -38,6 +38,10 @@ export interface NpcPermissions {
   integrations?: Array<{
     slug: string;
     actions?: string[];
+    /** When true, tools for this integration only register while the
+     *  OWNER is speaking — guards write-capable integrations (gmail
+     *  send, github create) since NPCs run on the owner's CORE token. */
+    owner_only?: boolean;
   }>;
   core?: {
     tasks?: Array<"read" | "write">;
@@ -212,10 +216,13 @@ export function normalizePermissions(raw: unknown): NpcPermissions {
       if (!entry || typeof entry !== "object") continue;
       const e = entry as Record<string, unknown>;
       if (typeof e.slug !== "string") continue;
-      const item: { slug: string; actions?: string[] } = { slug: e.slug };
+      const item: { slug: string; actions?: string[]; owner_only?: boolean } = {
+        slug: e.slug,
+      };
       if (Array.isArray(e.actions)) {
         item.actions = e.actions.filter((a): a is string => typeof a === "string");
       }
+      if (typeof e.owner_only === "boolean") item.owner_only = e.owner_only;
       list.push(item);
     }
     out.integrations = list;

@@ -25,7 +25,10 @@ export type TownActivityKind =
   | "npc_chat"
   | "tag_awarded"
   | "item_awarded"
-  | "group_chat_started";
+  | "group_chat_started"
+  // One row per execute_integration_action call, never deduped.
+  // metadata: { npcId, npcName, slug, action, ok }
+  | "integration_action";
 
 const DEDUPE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 

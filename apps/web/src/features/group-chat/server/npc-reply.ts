@@ -217,6 +217,8 @@ export async function generateAndPublishNpcReply(
   ]);
   // townCtx = null → grant_tag / give_item won't register; every other
   // permitted tool will. Awards stay 1-1-only by construction.
+  // speakerIsOwner stays at its default (false) — a mixed room hides
+  // owner_only grants even when the owner is present.
   const tools = buildNpcTools(
     ownerToken,
     npc.permissions,

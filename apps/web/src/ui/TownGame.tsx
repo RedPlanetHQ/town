@@ -55,6 +55,7 @@ import { TransitionLoading } from "./TransitionLoading";
 import { CommandBar } from "./CommandBar";
 import { tinykeys } from "tinykeys";
 import { installCanvasFocusPolicy } from "../game/canvasFocus";
+import { NpcAccess } from "./NpcAccess";
 
 // The mount point: a canvas owned by React, populated by kaplay in useEffect,
 // and a sibling overlay layer for the React-rendered UI (HUD, prompt, panels).
@@ -416,6 +417,7 @@ export function TownGame(props: TownGameProps = {}) {
           <ItemsBadge townSlug={(props as { townSlug: string }).townSlug} />
         ) : null}
         {!isVisitor ? <SuggestionsBadge count={suggestions.count} /> : null}
+        {!isVisitor && ownerSlug ? <NpcAccess townSlug={ownerSlug} /> : null}
       </div>
 
       {prompt ? (

@@ -18,6 +18,7 @@ import { z } from "zod";
 
 import type { TownCatalog } from "@town/types";
 
+import { AURA_INTEGRATION_ACTION_COST, debitAuraBySlug } from "./aura";
 import { prisma } from "./db";
 import type { NpcPermissions } from "./npc-templates";
 import { recordTownActivity } from "./town-activity";
@@ -132,22 +133,25 @@ class IntegrationResolver {
   }
 }
 
+// Helpers take the EFFECTIVE grant list (owner_only entries already
+// filtered by speaker), not the raw permissions blob — one shared gate.
+type IntegrationGrantEntry = NonNullable<NpcPermissions["integrations"]>[number];
+
 function integrationGrant(
-  perms: NpcPermissions,
+  grants: IntegrationGrantEntry[],
   slug: string,
 ): { allowed: boolean; actions?: string[] } {
-  const list = perms.integrations ?? [];
-  const entry = list.find((g) => g.slug === slug);
+  const entry = grants.find((g) => g.slug === slug);
   if (!entry) return { allowed: false };
   return { allowed: true, actions: entry.actions };
 }
 
 function isActionAllowed(
-  perms: NpcPermissions,
+  grants: IntegrationGrantEntry[],
   slug: string,
   action: string,
 ): boolean {
-  const grant = integrationGrant(perms, slug);
+  const grant = integrationGrant(grants, slug);
   if (!grant.allowed) return false;
   // No `actions` filter → level-1 grant (full integration).
   if (!grant.actions) return true;
@@ -218,6 +222,10 @@ export function buildNpcTools(
   permissions: NpcPermissions,
   callableSkills: CallableSkillMeta[] = [],
   townCtx: TownContext | null = null,
+  // Whether the SPEAKER is the town owner — separate from townCtx since
+  // both the legacy owner-only path and group chat pass townCtx=null but
+  // differ on this. Gates owner_only integration grants below.
+  speakerIsOwner: boolean = townCtx?.isOwner ?? false,
 ): Record<string, Tool> {
   const ctxOrErr = makeContext(ownerToken);
   const tools: Record<string, Tool> = {};
@@ -311,11 +319,16 @@ export function buildNpcTools(
   }
 
   // ── Integrations (list/list-actions/execute) ──────────────────────────
-  const hasAnyIntegrationGrant = (permissions.integrations ?? []).length > 0;
+  //
+  // owner_only grants are stripped from the effective list unless the
+  // speaker is the owner — filtered here (build time) so the tools don't
+  // even register for a visitor, same as any other ungranted tool.
+  const effectiveGrants = (permissions.integrations ?? []).filter(
+    (g) => !g.owner_only || speakerIsOwner,
+  );
+  const hasAnyIntegrationGrant = effectiveGrants.length > 0;
   if (hasAnyIntegrationGrant && !("error" in ctxOrErr)) {
-    const grantedSlugs = new Set(
-      (permissions.integrations ?? []).map((g) => g.slug),
-    );
+    const grantedSlugs = new Set(effectiveGrants.map((g) => g.slug));
     const resolver = new IntegrationResolver(ctxOrErr);
 
     tools.list_integrations = tool({
@@ -363,7 +376,7 @@ export function buildNpcTools(
         };
         if ("error" in res && res.error) return res;
         const actions = Array.isArray(res.actions) ? res.actions : [];
-        const grant = integrationGrant(permissions, slug);
+        const grant = integrationGrant(effectiveGrants, slug);
         // Level-1 grant: return everything. Level-2: filter to whitelist.
         const filtered = grant.actions
           ? actions.filter(
@@ -391,17 +404,47 @@ export function buildNpcTools(
         if (!slug || !grantedSlugs.has(slug)) {
           return { error: "integration-not-permitted" };
         }
-        if (!isActionAllowed(permissions, slug, action)) {
+        if (!isActionAllowed(effectiveGrants, slug, action)) {
           return { error: "action-not-permitted", action, slug };
         }
-        return await coreFetch(
+        // Attribution for CORE's IntegrationCallLog.source. No townCtx
+        // (group chat / legacy) falls back to a generic "town".
+        const source = townCtx?.npcId ? `town:npc:${townCtx.npcId}` : "town";
+        const result = await coreFetch(
           ctxOrErr,
           `/api/v1/integration_account/${encodeURIComponent(integration_account_id)}/action`,
           {
             method: "POST",
-            body: JSON.stringify({ action, parameters }),
+            body: JSON.stringify({ action, parameters, source }),
           },
         );
+        // Fire-and-forget audit row + aura debit — never block the reply
+        // on either. Discovery tools stay free; only execution costs aura.
+        if (townCtx) {
+          const ok = !(
+            result &&
+            typeof result === "object" &&
+            "error" in (result as Record<string, unknown>)
+          );
+          void recordTownActivity({
+            townSlug: townCtx.townSlug,
+            kind: "integration_action",
+            subjectKey: townCtx.subjectKey,
+            subjectName: townCtx.subjectName,
+            subjectCharacter: townCtx.subjectCharacter,
+            metadata: {
+              npcId: townCtx.npcId,
+              npcName: townCtx.npcName,
+              slug,
+              action,
+              ok,
+            },
+          }).catch((e) =>
+            console.warn("[town-activity] integration_action failed", e),
+          );
+          void debitAuraBySlug(townCtx.townSlug, AURA_INTEGRATION_ACTION_COST);
+        }
+        return result;
       },
     });
   }

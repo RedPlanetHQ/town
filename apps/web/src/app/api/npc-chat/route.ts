@@ -275,6 +275,21 @@ function buildSystemPrompt(
     ? `Session key: ${sessionKey}\nThis is an opaque per-visitor identifier — use it verbatim as a stable naming key when you create artifacts for this visitor in external systems (e.g. document filenames a downstream NPC will search for). Never read it aloud to the visitor; internal plumbing only.`
     : null;
 
+  // Advertise granted integrations by name so the model knows a concrete
+  // capability exists before deciding whether to call list_integrations —
+  // otherwise it tends to answer "I can't check your email" even when
+  // granted. Lists all granted slugs including owner_only ones; the tool
+  // layer (npc-tools.ts) is the actual gate, this is just a hint.
+  const grantedSlugs = (npc.permissions.integrations ?? []).map((g) =>
+    safeInline(g.slug, 40),
+  );
+  const integrationsBlock =
+    grantedSlugs.length === 0
+      ? null
+      : `Connected tools: the resident has granted you access to their ${grantedSlugs.join(
+          ", ",
+        )} account${grantedSlugs.length === 1 ? "" : "s"}. When the conversation calls for it, use list_integrations → list_integration_actions → execute_integration_action to act on them. Confirm with the speaker before performing writes (sending, creating, updating).`;
+
   // Inject preloaded skill content as a labelled block so the model treats
   // it as reference material, not voice. Each skill is sanitised by
   // safeBlock to neutralise injected control markers.
@@ -301,6 +316,7 @@ function buildSystemPrompt(
     "",
     modeBlock,
     ...(sessionBlock ? ["", sessionBlock] : []),
+    ...(integrationsBlock ? ["", integrationsBlock] : []),
     ...(skillsBlock ? ["", skillsBlock] : []),
   ].join("\n");
 }
@@ -463,6 +479,9 @@ export async function POST(req: Request) {
     npc.permissions,
     callableSkills,
     townCtx,
+    // Explicit: the legacy owner-only path has no townCtx but IS the
+    // owner — without this, owner_only grants would hide from them too.
+    viewer.isOwner,
   );
 
   // Visibility: log every chat startup with the tool surface the model
