@@ -48,7 +48,7 @@ import { resolveUser } from "@/lib/auth-bearer";
 import { getChatModel } from "@/lib/chat-model";
 import { resolveByokForUser } from "@/lib/byok/store";
 import { ingestNpcTurn, npcChatSessionId } from "@/lib/core-memory";
-import { getOwnerCoreToken } from "@/lib/core-token";
+import { getCoreToken, getOwnerCoreToken } from "@/lib/core-token";
 import { replaceAutoGreetInMessages } from "@/lib/npc-greet";
 import { prisma } from "@/lib/db";
 import { ensureNpcsForTown } from "@/lib/plot";
@@ -62,6 +62,7 @@ import {
 import { safeBlock, safeInline } from "@/lib/prompt-sanitize";
 import { loadTownCatalog } from "@/lib/town-tools";
 import { recordTownActivity } from "@/lib/town-activity";
+import { loadActiveVisitorGrants } from "@/lib/visitor-grants";
 import {
   AURA_SLEEP_THRESHOLD,
   modelIdOf,
@@ -332,6 +333,10 @@ export async function POST(req: Request) {
   // stable participantKey to attribute awards. Captured here when the
   // route is hit with townSlug so we can build a TownContext below.
   let visitorSubjectKey: string | null = null;
+  // The signed-in visitor's Town User.id (null for the owner or an anonymous
+  // guest). When set, we resolve their CORE token + the integrations they
+  // granted this NPC and route those tools to them.
+  let visitorUserId: string | null = null;
   // Activity-feed metadata. Only populated on the townSlug path —
   // legacy owner-only chats happen on personal towns without a public
   // feed.
@@ -349,6 +354,8 @@ export async function POST(req: Request) {
     viewer = { isOwner: view.isOwner, name: view.displayName };
     visitorSubjectKey = view.participantKey;
     activityCharacter = view.character;
+    // Only a signed-in NON-owner visitor can lend their own account.
+    if (!view.isOwner) visitorUserId = view.userId;
   } else {
     const resolved = await resolveUser(req);
     if (!resolved) {
@@ -435,11 +442,20 @@ export async function POST(req: Request) {
   // item templates). Personal towns get null and the town tools simply
   // don't register. Loaded in parallel with the skill metadata to keep
   // chat startup latency flat.
-  const [injectedSkills, callableSkills, townCatalog] = await Promise.all([
-    loadInjectedSkills(ownerToken, npc.permissions),
-    loadCallableSkillMeta(ownerToken, npc.permissions),
-    body.townSlug ? loadTownCatalog(body.townSlug) : Promise.resolve(null),
-  ]);
+  // When a signed-in visitor is chatting, also resolve their CORE token
+  // (getCoreToken reads their session cookie off this request) and the
+  // integrations they granted this NPC. buildNpcTools routes those tools to
+  // the visitor's own account; everything else stays on the owner token.
+  const [injectedSkills, callableSkills, townCatalog, visitorGrants] =
+    await Promise.all([
+      loadInjectedSkills(ownerToken, npc.permissions),
+      loadCallableSkillMeta(ownerToken, npc.permissions),
+      body.townSlug ? loadTownCatalog(body.townSlug) : Promise.resolve(null),
+      visitorUserId
+        ? loadActiveVisitorGrants(npc.id, visitorUserId)
+        : Promise.resolve([]),
+    ]);
+  const visitorToken = visitorUserId ? await getCoreToken(req) : null;
   const townCtx: TownContext | null =
     body.townSlug && visitorSubjectKey
       ? {
@@ -463,6 +479,8 @@ export async function POST(req: Request) {
     npc.permissions,
     callableSkills,
     townCtx,
+    visitorToken,
+    visitorGrants,
   );
 
   // Visibility: log every chat startup with the tool surface the model

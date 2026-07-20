@@ -21,6 +21,10 @@ export type ResolvedViewer = {
   // The town row we resolved against — caller usually wants this anyway.
   town: NonNullable<Awaited<ReturnType<typeof getTownBySlug>>>;
   isOwner: boolean;
+  // Town User.id when the viewer is signed in (owner OR signed-in visitor),
+  // null for an anonymous guest. The visitor-grant feature keys grants
+  // on this — only signed-in visitors can lend their CORE account.
+  userId: string | null;
 };
 
 export type ResolveError =
@@ -46,6 +50,7 @@ export async function resolveViewer(
       character: owner?.character ?? null,
       town,
       isOwner: true,
+      userId: session.user.id,
     };
   }
 
@@ -60,6 +65,7 @@ export async function resolveViewer(
       character: visitor.ch,
       town,
       isOwner: false,
+      userId: session.user.id,
     };
   }
   return {
@@ -68,5 +74,6 @@ export async function resolveViewer(
     character: visitor.ch,
     town,
     isOwner: false,
+    userId: null,
   };
 }
