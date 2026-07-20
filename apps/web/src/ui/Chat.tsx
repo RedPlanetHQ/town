@@ -27,6 +27,7 @@ import {
 } from "../lib/npc-greet";
 import { CloseIcon, ExpandIcon, RestoreIcon } from "./chat-icons";
 import { ui, type ChatState } from "./store";
+import { VisitorAccess } from "./VisitorAccessPopover";
 
 type WindowMode = "compact" | "expanded";
 
@@ -126,15 +127,20 @@ export function Chat({ chat }: { chat: NonNullable<ChatState> }) {
   };
 
   const controls = (
-    <WindowControls
-      mode={mode}
-      onExpand={() => setMode("expanded")}
-      onRestore={() => setMode("compact")}
-      onClose={() => {
-        stop();
-        ui.closeChat();
-      }}
-    />
+    <div className="flex items-center gap-2">
+      {/* Lets a signed-in visitor lend this NPC their own CORE
+          integrations. Self-hides when the NPC uses no integrations. */}
+      <VisitorAccess npcId={chat.npcId} townSlug={viewerSlug} />
+      <WindowControls
+        mode={mode}
+        onExpand={() => setMode("expanded")}
+        onRestore={() => setMode("compact")}
+        onClose={() => {
+          stop();
+          ui.closeChat();
+        }}
+      />
+    </div>
   );
 
   const isExpanded = mode === "expanded";
