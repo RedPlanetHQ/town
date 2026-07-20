@@ -65,6 +65,9 @@ model User {
   entitlementGrants    EntitlementGrant[]
   passportStamps       PassportStamp[]
   modelKeys            ModelKey[]
+  // Grants this user (as a VISITOR) made of their own CORE integrations to
+  // NPCs in towns they don't own. See VisitorIntegrationGrant.
+  visitorIntegrationGrants VisitorIntegrationGrant[]
 
   @@unique([coreUserId, workspaceId])
   @@index([email])
@@ -139,6 +142,7 @@ model Town {
   visits               TownVisit[]
   passportStamps       PassportStamp[]
   entitlementGrants    EntitlementGrant[]
+  visitorIntegrationGrants VisitorIntegrationGrant[]
   // Per-town catalog of visitor tags + SVG item templates. Authored under
   // the town deployment directory (tags inline in town.json, items as
   // items/manifest.json + items/<id>.svg) and uploaded via /api/town.
@@ -365,9 +369,44 @@ model Npc {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  visitorIntegrationGrants VisitorIntegrationGrant[]
+
   @@index([townId])
   @@index([townId, buildingId])
   @@index([townId, buildingId, slotId])
+}
+
+// A signed-in visitor's grant of their OWN CORE integration to an NPC in a
+// town they don't own, so the NPC can act on the visitor's token. Complements
+// the owner's mdx grants on Npc.permissions (which use the owner's accounts).
+// Keyed on `slug`, not the CORE account id — the account id changes when the
+// visitor reconnects, so it's resolved from the visitor's token at chat time.
+model VisitorIntegrationGrant {
+  id            String   @id @default(cuid())
+  townId        String
+  town          Town     @relation(fields: [townId], references: [id], onDelete: Cascade)
+  npcId         String
+  npc           Npc      @relation(fields: [npcId], references: [id], onDelete: Cascade)
+  // The visitor's Town User.id (the person lending their account).
+  visitorUserId String
+  visitor       User     @relation(fields: [visitorUserId], references: [id], onDelete: Cascade)
+  // Integration slug the visitor consented to (e.g. "notion", "gmail").
+  slug          String
+  // Optional per-action whitelist. Empty = whole integration (level-1),
+  // mirroring the NpcPermissions grant shape. UI only writes [] for now;
+  // the column lets a level-2 UI land later without a migration.
+  actions       String[] @default([])
+  // Soft-delete: null = active. Revoking from the in-chat popover stamps
+  // this instead of deleting, so the grant history stays auditable and a
+  // re-grant is a simple upsert (un-revoke).
+  revokedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // One active row per (npc, visitor, slug). Re-granting updates in place.
+  @@unique([npcId, visitorUserId, slug])
+  // Chat-time load: "what did THIS visitor grant THIS npc".
+  @@index([npcId, visitorUserId])
 }
 
 // User-uploaded sprite (PNG bytes for a CustomPlot exterior / interior /
