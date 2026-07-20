@@ -21,6 +21,7 @@ import type { TownCatalog } from "@town/types";
 import { prisma } from "./db";
 import type { NpcPermissions } from "./npc-templates";
 import { recordTownActivity } from "./town-activity";
+import type { VisitorGrant } from "./visitor-grants";
 import {
   findItem,
   findTag,
@@ -31,16 +32,19 @@ import {
 
 const CORE_BASE_ENV = "CORE_OAUTH_BASE";
 
+// A resolved CORE call context: a bearer token + base URL. The token is
+// usually the town owner's, but may be a signed-in visitor's for
+// visitor-granted integrations — CORE scopes the request to the token owner.
 interface FetchContext {
-  ownerToken: string;
+  token: string;
   base: string;
 }
 
-function makeContext(ownerToken: string | null): FetchContext | { error: string } {
-  if (!ownerToken) return { error: "no-owner-token" };
+function makeContext(token: string | null): FetchContext | { error: string } {
+  if (!token) return { error: "no-owner-token" };
   const base = process.env[CORE_BASE_ENV];
   if (!base) return { error: "core-base-not-set" };
-  return { ownerToken, base };
+  return { token, base };
 }
 
 async function coreFetch(
@@ -51,7 +55,7 @@ async function coreFetch(
   const res = await fetch(`${ctx.base}${path}`, {
     ...init,
     headers: {
-      authorization: `Bearer ${ctx.ownerToken}`,
+      authorization: `Bearer ${ctx.token}`,
       "content-type": "application/json",
       ...(init?.headers ?? {}),
     },
@@ -132,26 +136,41 @@ class IntegrationResolver {
   }
 }
 
-function integrationGrant(
-  perms: NpcPermissions,
-  slug: string,
-): { allowed: boolean; actions?: string[] } {
-  const list = perms.integrations ?? [];
-  const entry = list.find((g) => g.slug === slug);
-  if (!entry) return { allowed: false };
-  return { allowed: true, actions: entry.actions };
+// ── Integration sources (owner token + optional visitor token) ─────────────
+//
+// An integration call can act on the owner's account (granted in the NPC's
+// mdx) or, when a signed-in visitor lends their own, on the visitor's account
+// (granted via the in-chat popover). Each source pairs a token context with
+// the slugs granted through it; `origin` labels whose account it is — for the
+// audit source string and the model-facing list_integrations response.
+type IntegrationOrigin = "resident" | "visitor";
+
+/** A normalized grant: slug + optional action whitelist. A missing OR empty
+ *  whitelist is a level-1 grant (every action); only a non-empty list narrows
+ *  to level-2 (just those actions). Owner grants (NpcPermissions.integrations)
+ *  and visitor grants (VisitorGrant) both use `actions: []` to mean "whole
+ *  integration", so they map onto this identically. */
+interface NormGrant {
+  slug: string;
+  actionWhitelist?: string[];
 }
 
-function isActionAllowed(
-  perms: NpcPermissions,
-  slug: string,
-  action: string,
-): boolean {
-  const grant = integrationGrant(perms, slug);
-  if (!grant.allowed) return false;
-  // No `actions` filter → level-1 grant (full integration).
-  if (!grant.actions) return true;
-  return grant.actions.includes(action);
+interface IntegrationSource {
+  ctx: FetchContext;
+  resolver: IntegrationResolver;
+  grants: NormGrant[];
+  origin: IntegrationOrigin;
+}
+
+function grantFor(source: IntegrationSource, slug: string): NormGrant | undefined {
+  return source.grants.find((g) => g.slug === slug);
+}
+
+function actionAllowed(grant: NormGrant, action: string): boolean {
+  // Level-1 grant (whole integration) = no whitelist OR an empty one → every
+  // action allowed. Only a non-empty whitelist narrows to the listed actions.
+  if (!grant.actionWhitelist || grant.actionWhitelist.length === 0) return true;
+  return grant.actionWhitelist.includes(action);
 }
 
 /** Metadata for one callable skill — used to advertise the skill to
@@ -218,6 +237,12 @@ export function buildNpcTools(
   permissions: NpcPermissions,
   callableSkills: CallableSkillMeta[] = [],
   townCtx: TownContext | null = null,
+  // The speaking visitor's own CORE token + the integrations they granted
+  // this NPC. Default empty → owner-only behaviour, as before. Only
+  // integrations route to the visitor's token; memory/tasks/skills stay on
+  // the owner's.
+  visitorToken: string | null = null,
+  visitorGrants: VisitorGrant[] = [],
 ): Record<string, Tool> {
   const ctxOrErr = makeContext(ownerToken);
   const tools: Record<string, Tool> = {};
@@ -311,30 +336,87 @@ export function buildNpcTools(
   }
 
   // ── Integrations (list/list-actions/execute) ──────────────────────────
-  const hasAnyIntegrationGrant = (permissions.integrations ?? []).length > 0;
-  if (hasAnyIntegrationGrant && !("error" in ctxOrErr)) {
-    const grantedSlugs = new Set(
-      (permissions.integrations ?? []).map((g) => g.slug),
+  //
+  // Up to two sources feed the integration tools:
+  //   • resident — owner token + the NPC's mdx grants (existing behaviour).
+  //   • visitor  — the signed-in visitor's own token + the integrations they
+  //                granted this NPC in the in-chat popover.
+  // One merged tool surface routes each call to the right token by
+  // integration_account_id (globally unique in CORE), so an NPC can act on
+  // the resident's and the visitor's accounts in the same conversation.
+  const sources: IntegrationSource[] = [];
+  if (!("error" in ctxOrErr)) {
+    const ownerGrants: NormGrant[] = (permissions.integrations ?? []).map(
+      // actions absent/[] = whole integration (level-1); a non-empty list is a
+      // level-2 whitelist. Consumers treat [] the same as none — same rule as
+      // the visitor mapping below.
+      (g) => ({ slug: g.slug, actionWhitelist: g.actions }),
     );
-    const resolver = new IntegrationResolver(ctxOrErr);
-
+    if (ownerGrants.length > 0) {
+      sources.push({
+        ctx: ctxOrErr,
+        resolver: new IntegrationResolver(ctxOrErr),
+        grants: ownerGrants,
+        origin: "resident",
+      });
+    }
+  }
+  if (visitorToken && visitorGrants.length > 0) {
+    const visitorCtx = makeContext(visitorToken);
+    if (!("error" in visitorCtx)) {
+      const norm: NormGrant[] = visitorGrants.map((g) => ({
+        slug: g.slug,
+        // actions:[] means the whole integration (level-1). Consumers treat an
+        // empty whitelist the same as none, so pass it straight through —
+        // identical to the owner-grant mapping above.
+        actionWhitelist: g.actions,
+      }));
+      sources.push({
+        ctx: visitorCtx,
+        resolver: new IntegrationResolver(visitorCtx),
+        grants: norm,
+        origin: "visitor",
+      });
+    }
+  }
+  // Find which source owns an account id (and the resolved slug), only if
+  // that slug is actually granted through that source. Account ids are
+  // unique per token, so at most one source matches.
+  async function resolveAccount(
+    accountId: string,
+  ): Promise<{ source: IntegrationSource; slug: string } | null> {
+    for (const source of sources) {
+      const slug = await source.resolver.slugFor(accountId);
+      if (slug && grantFor(source, slug)) return { source, slug };
+    }
+    return null;
+  }
+  if (sources.length > 0) {
     tools.list_integrations = tool({
       description:
-        "List the resident's connected CORE integrations that this NPC is allowed to use. " +
-        "Returns [{integration_account_id, slug, name}]. Call this before list_integration_actions " +
-        "or execute_integration_action to learn what's available.",
+        "List the connected CORE integrations this NPC may use. Returns " +
+        "[{integration_account_id, slug, name, belongs_to}]. `belongs_to` is " +
+        "\"resident\" (the town owner's account) or \"you\" (the visitor's own " +
+        "account, if they've granted it). When both exist for the same slug, " +
+        "prefer the visitor's own account (belongs_to=\"you\") when acting for " +
+        "the visitor. Call this before list_integration_actions or execute_integration_action.",
       inputSchema: z.object({}),
       async execute() {
-        const all = await resolver.load();
-        return {
-          integrations: all
-            .filter((a) => grantedSlugs.has(a.slug))
-            .map((a) => ({
-              integration_account_id: a.id,
-              slug: a.slug,
-              name: a.name ?? a.slug,
-            })),
-        };
+        const perSource = await Promise.all(
+          sources.map(async (source) => {
+            const granted = new Set(source.grants.map((g) => g.slug));
+            const accounts = await source.resolver.load();
+            return accounts
+              .filter((a) => granted.has(a.slug))
+              .map((a) => ({
+                integration_account_id: a.id,
+                slug: a.slug,
+                name: a.name ?? a.slug,
+                belongs_to: source.origin === "visitor" ? "you" : "resident",
+              }));
+          }),
+        );
+        return { integrations: perSource.flat() };
       },
     });
 
@@ -350,26 +432,28 @@ export function buildNpcTools(
         ),
       }),
       async execute({ integration_account_id, query }) {
-        const slug = await resolver.slugFor(integration_account_id);
-        if (!slug || !grantedSlugs.has(slug)) {
-          return { error: "integration-not-permitted" };
-        }
+        const match = await resolveAccount(integration_account_id);
+        if (!match) return { error: "integration-not-permitted" };
+        const { source, slug } = match;
         const path =
           `/api/v1/integration_account/${encodeURIComponent(integration_account_id)}/action` +
           (query ? `?query=${encodeURIComponent(query)}` : "");
-        const res = (await coreFetch(ctxOrErr, path)) as {
+        const res = (await coreFetch(source.ctx, path)) as {
           actions?: Array<Record<string, unknown>>;
           error?: string;
         };
         if ("error" in res && res.error) return res;
         const actions = Array.isArray(res.actions) ? res.actions : [];
-        const grant = integrationGrant(permissions, slug);
-        // Level-1 grant: return everything. Level-2: filter to whitelist.
-        const filtered = grant.actions
-          ? actions.filter(
-              (a) => typeof a.name === "string" && grant.actions!.includes(a.name),
-            )
-          : actions;
+        const grant = grantFor(source, slug)!;
+        // Level-1 (no whitelist, or an empty one) returns everything; level-2
+        // (a non-empty whitelist) filters to the listed actions.
+        const whitelist = grant.actionWhitelist;
+        const filtered =
+          whitelist && whitelist.length > 0
+            ? actions.filter(
+                (a) => typeof a.name === "string" && whitelist.includes(a.name),
+              )
+            : actions;
         return { actions: filtered };
       },
     });
@@ -387,19 +471,26 @@ export function buildNpcTools(
           .describe("Action parameters object. Shape comes from the action's inputSchema."),
       }),
       async execute({ integration_account_id, action, parameters }) {
-        const slug = await resolver.slugFor(integration_account_id);
-        if (!slug || !grantedSlugs.has(slug)) {
-          return { error: "integration-not-permitted" };
-        }
-        if (!isActionAllowed(permissions, slug, action)) {
+        const match = await resolveAccount(integration_account_id);
+        if (!match) return { error: "integration-not-permitted" };
+        const { source, slug } = match;
+        if (!actionAllowed(grantFor(source, slug)!, action)) {
           return { error: "action-not-permitted", action, slug };
         }
+        // Attribution for CORE's IntegrationCallLog.source: which NPC, and
+        // whose account (resident vs visitor). CORE ignores it if the field
+        // isn't wired yet; the token still scopes the call correctly.
+        const npcTag = townCtx?.npcId ? `npc:${townCtx.npcId}` : "npc";
         return await coreFetch(
-          ctxOrErr,
+          source.ctx,
           `/api/v1/integration_account/${encodeURIComponent(integration_account_id)}/action`,
           {
             method: "POST",
-            body: JSON.stringify({ action, parameters }),
+            body: JSON.stringify({
+              action,
+              parameters,
+              source: `town:${npcTag}:${source.origin}`,
+            }),
           },
         );
       },
