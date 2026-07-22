@@ -130,7 +130,7 @@ export function Chat({ chat }: { chat: NonNullable<ChatState> }) {
     <div className="flex items-center gap-2">
       {/* Lets a signed-in visitor lend this NPC their own CORE
           integrations. Self-hides when the NPC uses no integrations. */}
-      <VisitorAccess npcId={chat.npcId} townSlug={viewerSlug} />
+      <VisitorAccess npcId={chat.npcId} />
       <WindowControls
         mode={mode}
         onExpand={() => setMode("expanded")}

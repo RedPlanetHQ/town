@@ -12,16 +12,15 @@
 //       granted   = what they've already shared
 //       signedIn  = whether the caller has a CORE session
 //   • No `needed` → the NPC uses no integrations → render nothing.
-//   • Anonymous guest (signedIn=false) → the button sends them through CORE
-//     sign-in first (granting needs their own account).
+//   • Not signed in with CORE (signedIn=false) → button shown but disabled;
+//     granting needs the visitor's own CORE account (sign-in is done on entry,
+//     not re-triggered from here).
 //   • Signed-in → popover lists only the integrations the visitor has
 //     connected in CORE, each as a toggle; Save persists via PUT (unchecking
 //     + Save revokes). If none of the NPC's integrations are connected, an
 //     empty state names what the NPC uses so they know what to connect.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-
-import { startLogin } from "../game/auth";
 
 interface ConnectedIntegration {
   slug: string;
@@ -38,13 +37,7 @@ interface AccessData {
   warning?: string;
 }
 
-export function VisitorAccess({
-  npcId,
-  townSlug,
-}: {
-  npcId: string;
-  townSlug: string | null;
-}) {
+export function VisitorAccess({ npcId }: { npcId: string }) {
   const [data, setData] = useState<AccessData | null>(null);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -100,11 +93,6 @@ export function VisitorAccess({
   const connectedBySlug = new Map(data.connected.map((c) => [c.slug, c]));
 
   const onButtonClick = () => {
-    if (!data.signedIn) {
-      // Granting needs the visitor's own CORE account.
-      startLogin(townSlug ? `/${townSlug}` : "/");
-      return;
-    }
     setOpen((o) => !o);
     setSaved(false);
     void load(); // refresh connected/granted each open
@@ -147,8 +135,13 @@ export function VisitorAccess({
       <button
         type="button"
         onClick={onButtonClick}
-        className="border border-white/15 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-paper/70 hover:text-paper"
-        title="Let this character use your connected tools"
+        disabled={!data.signedIn}
+        className="border border-white/15 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-paper/70 hover:text-paper disabled:cursor-not-allowed disabled:text-paper/30 disabled:hover:text-paper/30"
+        title={
+          data.signedIn
+            ? "Let this character use your connected tools"
+            : "Sign in with CORE to share your connected tools"
+        }
       >
         Share access{data.granted.length > 0 ? ` (${data.granted.length})` : ""}
       </button>
