@@ -217,11 +217,17 @@ export async function generateAndPublishNpcReply(
   ]);
   // townCtx = null → grant_tag / give_item won't register; every other
   // permitted tool will. Awards stay 1-1-only by construction.
+  // scope = "group" so any owner integration flagged `scope: [direct]` in
+  // the mdx drops off the tool surface here. Visitor args stay defaulted:
+  // visitor lending is 1-1-only regardless of any mdx setting.
   const tools = buildNpcTools(
     ownerToken,
     npc.permissions,
     callableSkills,
     null,
+    null,
+    [],
+    "group",
   );
 
   const system = buildGroupSystemPrompt(

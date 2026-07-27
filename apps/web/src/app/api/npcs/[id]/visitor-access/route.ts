@@ -28,13 +28,20 @@ import { resolveViewer } from "@/lib/viewer";
 
 const CORE_BASE = () => process.env.CORE_OAUTH_BASE;
 
-/** Pull the integration slugs an NPC is configured to use out of its
- *  permissions blob (the owner-authored mdx grant). These are the slugs a
- *  visitor may be asked to lend their own account for. */
+/** Pull the integration slugs a visitor may be asked to LEND to this NPC.
+ *  Only slugs whose mdx `access` is "visitor" or "both" qualify; the default
+ *  ("owner") never surfaces here so guests aren't offered to share things the
+ *  NPC is only supposed to use from the owner's account. */
 function neededSlugs(permissions: unknown): string[] {
-  const p = permissions as { integrations?: Array<{ slug?: unknown }> } | null;
+  const p = permissions as {
+    integrations?: Array<{ slug?: unknown; access?: unknown }>;
+  } | null;
   if (!p || !Array.isArray(p.integrations)) return [];
   return p.integrations
+    .filter((g) => {
+      const access = typeof g?.access === "string" ? g.access : "owner";
+      return access === "visitor" || access === "both";
+    })
     .map((g) => (typeof g?.slug === "string" ? g.slug : null))
     .filter((s): s is string => !!s);
 }

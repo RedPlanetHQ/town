@@ -28,10 +28,15 @@ import type { RunStructuredArgs, RunStructuredResult } from "./types";
 // Truly lazy: the SDK throws at construction if OPENAI_API_KEY is unset.
 // Next.js page-data collection imports this module at build time even on
 // Anthropic-default deploys, so defer until first call.
+//
+// If OPENAI_BASE_URL is set, we route through an OpenAI-compatible proxy
+// (e.g. LiteLLM, Vercel AI Gateway) using OPENAI_API_KEY as the security
+// key sent to the proxy. Matches the pattern in core's model.server.ts.
 let _client: OpenAI | null = null;
 function getClient(): OpenAI {
   if (_client === null) {
-    _client = new OpenAI();
+    const baseURL = process.env.OPENAI_BASE_URL?.trim();
+    _client = new OpenAI(baseURL ? { baseURL } : undefined);
   }
   return _client;
 }

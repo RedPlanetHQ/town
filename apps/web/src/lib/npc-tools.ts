@@ -243,6 +243,11 @@ export function buildNpcTools(
   // the owner's.
   visitorToken: string | null = null,
   visitorGrants: VisitorGrant[] = [],
+  // Which chat surface this call is for. Owner integrations may narrow to
+  // one scope via `permissions.integrations[].scope`; visitor integrations
+  // ignore this (they are 1-1-only by construction — the group-chat caller
+  // never passes visitor args in the first place).
+  scope: "direct" | "group" = "direct",
 ): Record<string, Tool> {
   const ctxOrErr = makeContext(ownerToken);
   const tools: Record<string, Tool> = {};
@@ -344,9 +349,32 @@ export function buildNpcTools(
   // One merged tool surface routes each call to the right token by
   // integration_account_id (globally unique in CORE), so an NPC can act on
   // the resident's and the visitor's accounts in the same conversation.
+  // `access` (default "owner") declares whose CORE account may back each
+  // integration. Owner-eligible: "owner" or "both". Visitor-eligible:
+  // "visitor" or "both". The visitor-access route uses the same rule when
+  // deciding which slugs a guest may lend, so an unknown/typo access value
+  // (treated as "owner" here) matches the popover's behaviour.
+  const mdxIntegrations = permissions.integrations ?? [];
+  const ownerEligible = mdxIntegrations.filter((g) => {
+    const access = g.access ?? "owner";
+    if (access !== "owner" && access !== "both") return false;
+    // `scope` narrows only strict "owner" grants. "both" always registers
+    // across scopes — an author who needs a scope restriction there is
+    // expected to split into two entries (see npc-templates.ts docstring).
+    if (access === "owner" && g.scope && !g.scope.includes(scope)) {
+      return false;
+    }
+    return true;
+  });
+  const visitorEligibleSlugs = new Set(
+    mdxIntegrations
+      .filter((g) => g.access === "visitor" || g.access === "both")
+      .map((g) => g.slug),
+  );
+
   const sources: IntegrationSource[] = [];
   if (!("error" in ctxOrErr)) {
-    const ownerGrants: NormGrant[] = (permissions.integrations ?? []).map(
+    const ownerGrants: NormGrant[] = ownerEligible.map(
       // actions absent/[] = whole integration (level-1); a non-empty list is a
       // level-2 whitelist. Consumers treat [] the same as none — same rule as
       // the visitor mapping below.
@@ -364,67 +392,94 @@ export function buildNpcTools(
   if (visitorToken && visitorGrants.length > 0) {
     const visitorCtx = makeContext(visitorToken);
     if (!("error" in visitorCtx)) {
-      const norm: NormGrant[] = visitorGrants.map((g) => ({
-        slug: g.slug,
-        // actions:[] means the whole integration (level-1). Consumers treat an
-        // empty whitelist the same as none, so pass it straight through —
-        // identical to the owner-grant mapping above.
-        actionWhitelist: g.actions,
+      // Defense in depth: even if a stale DB row lists a slug the mdx no
+      // longer marks visitor-eligible (e.g. author flipped access:"both" →
+      // "owner"), drop it here so the tool surface honours the current mdx.
+      const norm: NormGrant[] = visitorGrants
+        .filter((g) => visitorEligibleSlugs.has(g.slug))
+        .map((g) => ({
+          slug: g.slug,
+          // actions:[] means the whole integration (level-1). Consumers treat an
+          // empty whitelist the same as none, so pass it straight through —
+          // identical to the owner-grant mapping above.
+          actionWhitelist: g.actions,
+        }));
+      if (norm.length > 0) {
+        sources.push({
+          ctx: visitorCtx,
+          resolver: new IntegrationResolver(visitorCtx),
+          grants: norm,
+          origin: "visitor",
+        });
+      }
+    }
+  }
+  // Split the integration tools by source so the model doesn't need to
+  // read a `belongs_to` field to know whose account it's touching — the
+  // tool NAME carries that meaning:
+  //
+  //   list_resident_integrations       execute_resident_integration_action
+  //   list_visitor_integrations        execute_visitor_integration_action
+  //   list_resident_integration_actions
+  //   list_visitor_integration_actions
+  //
+  // Tools whose source isn't active simply aren't registered — an NPC on
+  // an owner-only mdx never sees a *_visitor_* tool, and vice versa.
+  //
+  // When an execute/list-actions call arrives with an integration_account_id
+  // this source doesn't own (e.g. the model skipped list_* and improvised),
+  // we don't just error — we return the current valid ids for the source in
+  // `available_accounts` so the model can retry inside the same turn instead
+  // of having to make an extra discovery call.
+  async function grantedAccountsFor(
+    source: IntegrationSource,
+  ): Promise<Array<{ integration_account_id: string; slug: string; name: string }>> {
+    const granted = new Set(source.grants.map((g) => g.slug));
+    const accounts = await source.resolver.load();
+    return accounts
+      .filter((a) => granted.has(a.slug))
+      .map((a) => ({
+        integration_account_id: a.id,
+        slug: a.slug,
+        name: a.name ?? a.slug,
       }));
-      sources.push({
-        ctx: visitorCtx,
-        resolver: new IntegrationResolver(visitorCtx),
-        grants: norm,
-        origin: "visitor",
-      });
-    }
   }
-  // Find which source owns an account id (and the resolved slug), only if
-  // that slug is actually granted through that source. Account ids are
-  // unique per token, so at most one source matches.
-  async function resolveAccount(
-    accountId: string,
-  ): Promise<{ source: IntegrationSource; slug: string } | null> {
-    for (const source of sources) {
-      const slug = await source.resolver.slugFor(accountId);
-      if (slug && grantFor(source, slug)) return { source, slug };
-    }
-    return null;
-  }
-  if (sources.length > 0) {
-    tools.list_integrations = tool({
+
+  function registerIntegrationTools(source: IntegrationSource): void {
+    // "resident" = the town owner's connected CORE account; "visitor" = the
+    // guest sitting in front of the NPC, who has lent their own account for
+    // this conversation.
+    const isVisitor = source.origin === "visitor";
+    const prefix = isVisitor ? "visitor" : "resident";
+    const listTool = `list_${prefix}_integrations`;
+    const listActionsTool = `list_${prefix}_integration_actions`;
+    const executeTool = `execute_${prefix}_integration_action`;
+
+    // Owner-facing descriptions read from the NPC's perspective. `whose`
+    // reminds the model which account this variant hits, so it doesn't
+    // pick the wrong tool when both are on the surface.
+    const whose = isVisitor
+      ? "the guest you're talking to (their OWN CORE account, lent to you for this conversation)"
+      : "the town resident (the owner's CORE account)";
+    const shortWhose = isVisitor ? "the guest's own" : "the resident's";
+
+    tools[listTool] = tool({
       description:
-        "List the connected CORE integrations this NPC may use. Returns " +
-        "[{integration_account_id, slug, name, belongs_to}]. `belongs_to` is " +
-        "\"resident\" (the town owner's account) or \"you\" (the visitor's own " +
-        "account, if they've granted it). When both exist for the same slug, " +
-        "prefer the visitor's own account (belongs_to=\"you\") when acting for " +
-        "the visitor. Call this before list_integration_actions or execute_integration_action.",
+        `List the connected CORE integrations on ${whose} that this NPC may use. ` +
+        `Returns [{integration_account_id, slug, name}]. Call this before ` +
+        `${listActionsTool} or ${executeTool} so you know the ids and slugs.`,
       inputSchema: z.object({}),
       async execute() {
-        const perSource = await Promise.all(
-          sources.map(async (source) => {
-            const granted = new Set(source.grants.map((g) => g.slug));
-            const accounts = await source.resolver.load();
-            return accounts
-              .filter((a) => granted.has(a.slug))
-              .map((a) => ({
-                integration_account_id: a.id,
-                slug: a.slug,
-                name: a.name ?? a.slug,
-                belongs_to: source.origin === "visitor" ? "you" : "resident",
-              }));
-          }),
-        );
-        return { integrations: perSource.flat() };
+        return { integrations: await grantedAccountsFor(source) };
       },
     });
 
-    tools.list_integration_actions = tool({
+    tools[listActionsTool] = tool({
       description:
-        "List the actions available on a connected integration. Optionally filter with a " +
-        "natural-language query (CORE will rank by relevance). Returns only actions this NPC " +
-        "is permitted to invoke.",
+        `List the actions available on one of ${shortWhose} integrations. ` +
+        "Optionally filter with a natural-language query (CORE will rank by " +
+        "relevance). Returns only actions this NPC is permitted to invoke on " +
+        `this source. Pass an integration_account_id from ${listTool}.`,
       inputSchema: z.object({
         integration_account_id: z.string().min(1),
         query: z.string().optional().describe(
@@ -432,9 +487,17 @@ export function buildNpcTools(
         ),
       }),
       async execute({ integration_account_id, query }) {
-        const match = await resolveAccount(integration_account_id);
-        if (!match) return { error: "integration-not-permitted" };
-        const { source, slug } = match;
+        const slug = await source.resolver.slugFor(integration_account_id);
+        const grant = slug ? grantFor(source, slug) : undefined;
+        if (!slug || !grant) {
+          return {
+            error: "integration-account-not-on-this-source",
+            detail:
+              `This ${prefix} tool only sees ${shortWhose} accounts. If you ` +
+              `meant the other side, use the resident/visitor counterpart.`,
+            available_accounts: await grantedAccountsFor(source),
+          };
+        }
         const path =
           `/api/v1/integration_account/${encodeURIComponent(integration_account_id)}/action` +
           (query ? `?query=${encodeURIComponent(query)}` : "");
@@ -444,7 +507,6 @@ export function buildNpcTools(
         };
         if ("error" in res && res.error) return res;
         const actions = Array.isArray(res.actions) ? res.actions : [];
-        const grant = grantFor(source, slug)!;
         // Level-1 (no whitelist, or an empty one) returns everything; level-2
         // (a non-empty whitelist) filters to the listed actions.
         const whitelist = grant.actionWhitelist;
@@ -458,24 +520,41 @@ export function buildNpcTools(
       },
     });
 
-    tools.execute_integration_action = tool({
+    tools[executeTool] = tool({
       description:
-        "Invoke an action on a connected integration. Use list_integration_actions to learn the " +
-        "action name and required parameters. Returns CORE's tool-result envelope " +
+        `Invoke an action on one of ${shortWhose} integrations. Use ` +
+        `${listActionsTool} first to learn the action name + required ` +
+        "parameters. Returns CORE's tool-result envelope " +
         "{result: {content: [...], isError: bool}}.",
       inputSchema: z.object({
         integration_account_id: z.string().min(1),
-        action: z.string().min(1).describe("Action name as returned by list_integration_actions."),
+        action: z
+          .string()
+          .min(1)
+          .describe(`Action name as returned by ${listActionsTool}.`),
         parameters: z
           .record(z.string(), z.unknown())
           .describe("Action parameters object. Shape comes from the action's inputSchema."),
       }),
       async execute({ integration_account_id, action, parameters }) {
-        const match = await resolveAccount(integration_account_id);
-        if (!match) return { error: "integration-not-permitted" };
-        const { source, slug } = match;
-        if (!actionAllowed(grantFor(source, slug)!, action)) {
-          return { error: "action-not-permitted", action, slug };
+        const slug = await source.resolver.slugFor(integration_account_id);
+        const grant = slug ? grantFor(source, slug) : undefined;
+        if (!slug || !grant) {
+          return {
+            error: "integration-account-not-on-this-source",
+            detail:
+              `This ${prefix} tool only sees ${shortWhose} accounts. If you ` +
+              `meant the other side, use the resident/visitor counterpart.`,
+            available_accounts: await grantedAccountsFor(source),
+          };
+        }
+        if (!actionAllowed(grant, action)) {
+          return {
+            error: "action-not-permitted",
+            action,
+            slug,
+            available_accounts: await grantedAccountsFor(source),
+          };
         }
         // Attribution for CORE's IntegrationCallLog.source: which NPC, and
         // whose account (resident vs visitor). CORE ignores it if the field
@@ -496,6 +575,8 @@ export function buildNpcTools(
       },
     });
   }
+
+  for (const source of sources) registerIntegrationTools(source);
 
   // ── Tasks ─────────────────────────────────────────────────────────────
   const taskGrant = new Set(permissions.core?.tasks ?? []);

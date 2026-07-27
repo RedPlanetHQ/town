@@ -26,6 +26,21 @@ import { join, basename } from "node:path";
  * - integrations: per-CORE-integration grant. `actions` undefined = full
  *   integration (level 1); `actions: [...]` whitelists specific tool names
  *   (level 2). Empty array means no actions, i.e. an explicit denial.
+ *   `access` picks whose CORE account may back the grant:
+ *     "owner" (default) — only the town owner's connected account.
+ *     "visitor"         — only a signed-in visitor's own account, lent via
+ *                         the in-chat Share-access popover.
+ *     "both"            — either — visitor may lend their own, owner's is
+ *                         always available as a fallback.
+ *   The visitor-access popover only offers slugs whose access is "visitor"
+ *   or "both"; owner-only slugs never appear as lendable to a guest.
+ *   `scope` narrows which chat surface an owner integration is registered
+ *   on — "direct" (1-1 NPC chat) and/or "group" (multi-participant group
+ *   chat). Omitted = both. Only honored when access is "owner" (or
+ *   omitted, which defaults to owner); for "visitor" or "both" the scope
+ *   field is ignored (visitor tools are 1-1-only by design, and "both"
+ *   always registers across scopes — split into two entries if you need
+ *   a scope restriction there).
  * - core: bool/array grants for CORE primitives that aren't integration
  *   actions — memory search and the tasks API. Reminders live on tasks
  *   (`schedule` / `nextRunAt` fields), so there's no separate reminder
@@ -38,6 +53,13 @@ export interface NpcPermissions {
   integrations?: Array<{
     slug: string;
     actions?: string[];
+    /** Whose CORE account may back this integration. Defaults to "owner"
+     *  when absent so existing mdx files keep the pre-visitor behaviour. */
+    access?: "owner" | "visitor" | "both";
+    /** Chat surfaces this integration is registered on. Only honored when
+     *  `access` is "owner" (or omitted). For "visitor" or "both" this field
+     *  is ignored. Defaults to both scopes when omitted. */
+    scope?: Array<"direct" | "group">;
   }>;
   core?: {
     tasks?: Array<"read" | "write">;
