@@ -42,15 +42,27 @@ export function getChatModel(
   const hasOpenAI = !!process.env.OPENAI_API_KEY;
   const explicit = (process.env.LLM_PROVIDER ?? "").toLowerCase().trim();
 
+  // If OPENAI_BASE_URL is set, route through an OpenAI-compatible proxy
+  // (LiteLLM, Vercel AI Gateway, etc.). OPENAI_API_KEY is the security
+  // key we send to the proxy. Same pattern core uses.
+  const openaiModel = (): LanguageModel => {
+    const baseURL = process.env.OPENAI_BASE_URL?.trim();
+    if (baseURL) {
+      const client = createOpenAI({ baseURL, apiKey: process.env.OPENAI_API_KEY });
+      return client(OPENAI_MODEL);
+    }
+    return openai(OPENAI_MODEL);
+  };
+
   // Explicit override wins, as long as the matching key is present.
-  if (explicit === "openai" && hasOpenAI) return { model: openai(OPENAI_MODEL), usedBYOK: false };
+  if (explicit === "openai" && hasOpenAI) return { model: openaiModel(), usedBYOK: false };
   if (explicit === "anthropic" && hasAnthropic) return { model: anthropic(ANTHROPIC_MODEL), usedBYOK: false };
   if (explicit === "ollama" && hasOllama()) return { model: ollamaModel(), usedBYOK: false };
 
   // Otherwise pick whichever key is set; prefer Anthropic by tradition.
   // Ollama goes last so adding OLLAMA_API_KEY never changes a deploy that already runs on Anthropic or OpenAI.
   if (hasAnthropic) return { model: anthropic(ANTHROPIC_MODEL), usedBYOK: false };
-  if (hasOpenAI) return { model: openai(OPENAI_MODEL), usedBYOK: false };
+  if (hasOpenAI) return { model: openaiModel(), usedBYOK: false };
   if (hasOllama()) return { model: ollamaModel(), usedBYOK: false };
 
   throw new Error(
