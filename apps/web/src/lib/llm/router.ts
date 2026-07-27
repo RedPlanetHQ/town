@@ -52,7 +52,14 @@ export function getModelForTask(
   switch (task) {
     case "curator":
       if (provider === "anthropic") return "claude-opus-4-7";
-      if (provider === "openai") return "gpt-4o";
+      if (provider === "openai") {
+        // OPENAI_STRUCTURED_MODEL overrides the curator model — needed for
+        // proxies where the model string is the routing key (e.g. LiteLLM's
+        // "openai/claude-sonnet-4-6" or "anthropic/claude-opus-4-7").
+        return (
+          process.env.OPENAI_STRUCTURED_MODEL?.trim() || "gpt-5.4-mini"
+        );
+      }
       break;
   }
   // Exhaustiveness sanity check.

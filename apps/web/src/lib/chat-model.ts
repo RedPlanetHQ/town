@@ -14,7 +14,15 @@ import { hasOllama, ollamaModel } from "@/lib/ollama";
 import type { BYOKProvider } from "@/lib/byok/store";
 
 const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
-const OPENAI_MODEL = "gpt-4o-mini";
+// Fallback OpenAI chat model. Platform path (OPENAI_API_KEY) can override
+// via OPENAI_CHAT_MODEL — useful for proxies where the model name is the
+// routing key, e.g. "openai/claude-sonnet-4-6" via LiteLLM. BYOK always
+// uses this hardcoded default because a user's key hits api.openai.com
+// directly and wouldn't know about proxy-prefixed model names.
+const OPENAI_MODEL_DEFAULT = "gpt-5.4-mini";
+function platformOpenAIModel(): string {
+  return process.env.OPENAI_CHAT_MODEL?.trim() || OPENAI_MODEL_DEFAULT;
+}
 
 export interface GetChatModelResult {
   model: LanguageModel;
@@ -31,8 +39,11 @@ export function getChatModel(
     return { model: client(ANTHROPIC_MODEL), usedBYOK: true };
   }
   if (userKey?.provider === "openai" && userKey.apiKey) {
+    // BYOK hits api.openai.com with the user's key — must be a real OpenAI
+    // model id, never the OPENAI_CHAT_MODEL override (which may be a
+    // proxy-prefixed alias like "openai/claude-sonnet-4-6").
     const client = createOpenAI({ apiKey: userKey.apiKey });
-    return { model: client(OPENAI_MODEL), usedBYOK: true };
+    return { model: client(OPENAI_MODEL_DEFAULT), usedBYOK: true };
   }
   // Ollama BYOK isn't wired here yet — Ollama Cloud auth is per-request,
   // and the existing `ollamaModel()` reads OLLAMA_API_KEY directly. Fall
@@ -45,13 +56,16 @@ export function getChatModel(
   // If OPENAI_BASE_URL is set, route through an OpenAI-compatible proxy
   // (LiteLLM, Vercel AI Gateway, etc.). OPENAI_API_KEY is the security
   // key we send to the proxy. Same pattern core uses.
+  // OPENAI_CHAT_MODEL overrides the model name — required for proxies where
+  // the model string is the routing key (e.g. "openai/claude-sonnet-4-6").
   const openaiModel = (): LanguageModel => {
     const baseURL = process.env.OPENAI_BASE_URL?.trim();
+    const modelName = platformOpenAIModel();
     if (baseURL) {
       const client = createOpenAI({ baseURL, apiKey: process.env.OPENAI_API_KEY });
-      return client(OPENAI_MODEL);
+      return client(modelName);
     }
-    return openai(OPENAI_MODEL);
+    return openai(modelName);
   };
 
   // Explicit override wins, as long as the matching key is present.
