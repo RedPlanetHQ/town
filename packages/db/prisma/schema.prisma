@@ -803,6 +803,13 @@ model ModelKey {
   provider     String
   encryptedKey String
   last4        String
+  // Optional OpenAI-compatible proxy. Only meaningful for provider="openai";
+  // when set, we route the user's chats through baseUrl using encryptedKey
+  // as the security key. Model is the exact id sent to the proxy (proxies
+  // like LiteLLM use it as the routing key; leave null to fall back to the
+  // platform default).
+  baseUrl      String?
+  model        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

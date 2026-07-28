@@ -8,7 +8,8 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
 
-const DEFAULT_BASE_URL = "https://ollama.com/v1";
+export const DEFAULT_OLLAMA_BASE_URL = "https://ollama.com/v1";
+const DEFAULT_BASE_URL = DEFAULT_OLLAMA_BASE_URL;
 export const DEFAULT_OLLAMA_MODEL = "gpt-oss:120b-cloud";
 
 /** 
